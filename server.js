@@ -6,6 +6,7 @@
 'use strict';
 
 const express = require('express');
+const compression = require('compression');
 const path = require('path');
 const ka = require('./lib/ka');
 const { parseSearch, parseDetail, parseTotal } = require('./lib/parse');
@@ -76,6 +77,7 @@ function normalizeQuery(qRaw) {
   return { q: null, note: 'Kleinanzeigen — немецкий сайт и по-русски не ищет. Введите запрос латиницей: например, iphone, sofa, fahrrad, laptop.' };
 }
 
+app.use(compression());                       // gzip: JSON ленты в ~5 раз меньше
 app.use(express.json({ limit: '64kb' }));
 
 // --- утилиты -----------------------------------------------------------
@@ -243,16 +245,21 @@ app.get('/api/ad/:id', async (req, res) => {
     ad.id = id;
     ad.href = href;
     const recMeta = store.recent(200).find(l => String(l.id) === String(id));
-    const hotNow = recMeta ? (recMeta.hot || 25) : 25;
-    const dropPct = recMeta ? recMeta.priceDropPct : 0;
-    const adDate = ad.date || (recMeta ? recMeta.date : null);
-    ad.interest = store.interestFor(id, hotNow, adDate, dropPct, Date.now());
+    // просмотры (оценка), возраст и «горячесть» по правилу 20 мин–4 ч и >= 0.5 просм./мин
+    const postedAt = (recMeta && recMeta.postedAt) || (hist && hist.postedAt) || ad.postedAt || null;
+    const vm = store.viewsMetaFor(id, postedAt, Date.now());
+    Object.assign(ad, vm);           // postedAt, ageMin, vpm, views, isHot
     if (hist) {
       ad.tracked = hist;
       const ts = hist.prices.map(p => p.t).concat([Date.now()]);
-      ad.interestSeries = ts.map(t => ({ t, v: store.interestFor(id, hotNow, adDate, dropPct, t) }));
+      ad.viewsSeries = ts.map(t => ({
+        t,
+        v: postedAt
+          ? Math.max(1, Math.round((vm.vpm || 0) * Math.max(0, (t - postedAt) / 60000)))
+          : vm.views,
+      }));
     } else {
-      ad.interestSeries = [{ t: Date.now(), v: ad.interest }];
+      ad.viewsSeries = vm.views != null ? [{ t: Date.now(), v: vm.views }] : [];
     }
     return res.json({ mode: 'live', ad });
   } catch (e) {
@@ -276,7 +283,9 @@ app.get('/api/ad/:id', async (req, res) => {
           price: rec.price, priceRaw: rec.priceRaw, negotiable: rec.negotiable,
           oldPrice: rec.oldPrice, date: rec.date, category: rec.category,
           interest: rec.interest,
+          views: rec.views, vpm: rec.vpm, ageMin: rec.ageMin, isHot: rec.isHot, postedAt: rec.postedAt,
           interestSeries: [{ t: Date.now(), v: rec.interest || 0 }],
+          viewsSeries: rec.views != null ? [{ t: Date.now(), v: rec.views }] : [],
           _partial: true,
         },
         fallbackReason: e.message,
@@ -338,7 +347,7 @@ app.get('/api/img', async (req, res) => {
 // --- статика ------------------------------------------------------------
 
 app.use(express.static(path.join(__dirname, 'public'), {
-  maxAge: '1h',
+  maxAge: '30d',                              // ассеты версионированы (?v=N) — кэшируем надолго
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache');
   },
