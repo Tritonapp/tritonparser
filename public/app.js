@@ -3,6 +3,7 @@
 
 (() => {
   const $ = (id) => document.getElementById(id);
+  const POPULAR = ['iphone 15', 'laptop', 'e-bike', 'sofa', 'ps5', 'fahrrad', 'kopfhörer', '_waschmaschine'];
   const state = {
     mode: null,          // 'live' | 'demo' | 'cached'
     page: 1,
@@ -34,30 +35,33 @@
   }
   function imgProxy(u) { return u ? '/api/img?u=' + encodeURIComponent(u) : null; }
 
-  // ---------- режим ----------
-  function setMode(mode, reason) {
+  // ---------- баннеры / режим ----------
+  function setMode(mode, reason, notice) {
     state.mode = mode;
     const pill = $('modePill');
     pill.className = 'mode-pill ' + mode;
     pill.textContent = mode === 'live' ? 'LIVE · kleinanzeigen.de' : mode === 'cached' ? 'КЭШ (нет доступа)' : 'ДЕМО-режим';
     const b = $('banner');
-    if (mode === 'live') {
+    if (notice) {
+      b.hidden = false; b.className = 'banner info';
+      b.textContent = notice;
+    } else if (mode === 'live') {
       b.hidden = true;
     } else if (mode === 'cached') {
       b.hidden = false; b.className = 'banner';
-      b.textContent = 'Kleinanzeigen временно не отвечает — показан последний успешный срез. Попробуйте «Свежий срез» через минуту.';
+      b.textContent = 'Kleinanzeigen временно не отвечает — показан последний успешный срез. Попробуйте «↻ Свежий срез» через минуту.';
     } else {
-      b.hidden = false; b.className = 'banner';
-      b.textContent = reason
-        ? 'Kleinanzeigen недоступен с этого сервера (' + esc(reason) + '). Показаны демо-данные: весь интерфейс работает как на живых данных.'
-        : 'Демо-режим: показаны сгенерированные данные, интерфейс полностью функционален.';
+      b.hidden = false; b.className = 'banner demo-banner';
+      b.innerHTML = '<b>ДЕМО-РЕЖИМ:</b> ' + (reason
+        ? 'Kleinanzeigen не отвечает с этого сервера (' + esc(reason) + '), поэтому ниже сгенерированные примеры, а не реальные объявления. Интерфейс полностью рабочий.'
+        : 'ниже сгенерированные примеры, а не реальные объявления. Интерфейс полностью рабочий.');
     }
   }
 
   // ---------- поиск ----------
   async function loadSearch({ force = false, demo = false } = {}) {
     const grid = $('feedGrid');
-    grid.innerHTML = '<div class="empty">Загружаем данные…</div>';
+    grid.innerHTML = '<div class="empty">Загружаем данные с Kleinanzeigen…<br><span class="muted">первый запрос может занять до 30 секунд</span></div>';
     $('feedEmpty').hidden = true;
     const q = $('q').value.trim() || 'angebote';
     state.query = { q, min: $('min').value, max: $('max').value };
@@ -72,11 +76,12 @@
       const j = await r.json();
       state.listings = j.listings || [];
       state.page = (j.query && j.query.page) || state.page;
-      if (demo) setMode('demo', null);
-      else setMode(j.mode, j.fallbackReason);
+      if (demo) setMode('demo', null, j.notice || null);
+      else setMode(j.mode, j.fallbackReason, j.notice);
       state.lastFetchAt = Date.now();
       $('lastSnap').textContent = fmt.time(state.lastFetchAt);
-      $('feedQuery').textContent = 'запрос: «' + q + '»' + (j.mode !== 'live' ? ' · ' + (j.mode === 'demo' ? 'демо' : 'кэш') : '');
+      const eff = j.query && j.query.effective;
+      $('feedQuery').textContent = 'запрос: «' + (eff || q) + '»' + (eff && eff !== q ? ' (по вашему «' + q + '»)' : '');
       renderFeed();
       loadStatus();
       loadTrending();
@@ -107,18 +112,31 @@
     $('pageInfo').textContent = 'стр. ' + state.page;
     $('pager').hidden = state.mode === 'demo';
     $('prevPage').disabled = state.page <= 1;
-    grid.innerHTML = list.map(cardHTML).join('');
-    $('feedEmpty').hidden = list.length > 0;
+    grid.innerHTML = list.length ? list.map(cardHTML).join('') : '';
+    const empty = $('feedEmpty');
+    empty.hidden = list.length > 0;
+    if (!list.length) {
+      empty.innerHTML = state.mode === 'demo'
+        ? 'Пусто. Измените запрос.'
+        : 'Ничего не нашлось. Попробуйте запрос латиницей (немецкий/английский):<div class="chips">' + POPULAR.slice(0, 6).map(chipHTML).join('') + '</div>';
+      empty.querySelectorAll('.chip').forEach(el => {
+        el.addEventListener('click', () => { $('q').value = el.dataset.q; state.page = 1; loadSearch(); });
+      });
+    }
     grid.querySelectorAll('.card').forEach(el => {
       el.addEventListener('click', () => openAd(el.dataset.id, el.dataset.href));
     });
   }
 
+  function chipHTML(q) {
+    return '<button class="chip" data-q="' + esc(q) + '">' + esc(q) + '</button>';
+  }
+
   function cardHTML(l) {
     const img = imgProxy(l.image);
     const badges = [];
-    if ((l.hot || 0) >= 60) badges.push('<span class="badge hot">🔥 ' + l.hot + '</span>');
-    else if ((l.hot || 0) >= 25) badges.push('<span class="badge hot">🔥 ' + l.hot + '</span>');
+    if (state.mode === 'demo') badges.push('<span class="badge drop">ДЕМО</span>');
+    if ((l.hot || 0) >= 25) badges.push('<span class="badge hot">🔥 ' + l.hot + '</span>');
     if (l.isTop) badges.push('<span class="badge top">TOP</span>');
     if (l.date && Date.now() - new Date(l.date + 'T12:00:00').getTime() < 36 * 3600e3) badges.push('<span class="badge new">NEW</span>');
     if (l.priceDrop) badges.push('<span class="badge drop">−' + l.priceDropPct + '%</span>');
@@ -182,29 +200,47 @@
   }
 
   // ---------- модалка ----------
+  function findLocal(id) {
+    return state.listings.find(l => String(l.id) === String(id)) || null;
+  }
+
   async function openAd(id, href) {
     if (!id) return;
     const back = $('modalBack');
     back.hidden = false;
     document.body.style.overflow = 'hidden';
-    $('mTitle').textContent = 'Загрузка…';
-    $('mPrice').textContent = '—'; $('mOld').hidden = true; $('mDrop').hidden = true;
-    $('mMeta').innerHTML = ''; $('mDesc').textContent = '…';
-    $('mDetails').innerHTML = ''; $('mSeller').innerHTML = '';
-    $('mBadges').innerHTML = ''; $('mChart').innerHTML = '';
-    $('mChartNote').textContent = '';
-    $('mImg').style.backgroundImage = '';
-    $('mImg').innerHTML = '<span class="no-photo">Нет фото</span>';
     $('mOpen').href = href ? 'https://www.kleinanzeigen.de' + href : '#';
 
+    // 1) мгновенно показываем то, что уже знаем из ленты
+    const local = findLocal(id);
+    if (local) {
+      renderAd({
+        title: local.title,
+        price: local.price, priceRaw: local.priceRaw, negotiable: local.negotiable,
+        oldPrice: local.oldPrice, date: local.date, image: local.image,
+        description: '…', details: [], images: local.image ? [local.image] : [],
+        seller: {}, href: local.href, id,
+      }, state.mode);
+    } else {
+      $('mTitle').textContent = 'Загрузка…';
+      $('mPrice').textContent = '—'; $('mOld').hidden = true; $('mDrop').hidden = true;
+      $('mMeta').innerHTML = ''; $('mDesc').textContent = '…';
+      $('mDetails').innerHTML = ''; $('mSeller').innerHTML = '';
+      $('mBadges').innerHTML = ''; $('mChart').innerHTML = '';
+      $('mImg').style.backgroundImage = '';
+      $('mImg').innerHTML = '<span class="no-photo">Нет фото</span>';
+    }
+
+    // 2) догружаем полную карточку
     const p = new URLSearchParams({ href: href || '' });
     if (state.mode === 'demo') p.set('mode', 'demo');
     try {
       const r = await fetch('/api/ad/' + encodeURIComponent(id) + '?' + p);
       const j = await r.json();
-      renderAd(j.ad || {}, j.mode);
+      if (j.ad) renderAd(j.ad, j.mode);
+      else if (!local) $('mTitle').textContent = 'Не удалось загрузить объявление';
     } catch (e) {
-      $('mTitle').textContent = 'Не удалось загрузить объявление';
+      if (!local) $('mTitle').textContent = 'Не удалось загрузить объявление';
     }
   }
 
@@ -236,7 +272,7 @@
     const img = imgProxy(ad.images && ad.images[0] ? ad.images[0] : ad.image);
     if (img) { $('mImg').style.backgroundImage = 'url(' + img + ')'; $('mImg').innerHTML = ''; }
 
-    $('mDesc').textContent = ad.description || 'Описание недоступно.';
+    if (ad.description && ad.description !== '…') $('mDesc').textContent = ad.description;
     $('mDetails').innerHTML = (ad.details || []).map(d => '<span><b>' + esc(d.label) + ':</b> ' + esc(d.value) + '</span>').join('');
 
     const s = ad.seller || {};
@@ -302,6 +338,16 @@
     state.autoRefresh = $('autoRefresh').checked;
     scheduleAuto();
   });
+
+  // чипсы популярных запросов под строкой поиска
+  (function renderChips() {
+    const row = $('chipsRow');
+    if (!row) return;
+    row.innerHTML = POPULAR.filter(q => !q.startsWith('_')).map(chipHTML).join('');
+    row.querySelectorAll('.chip').forEach(el => {
+      el.addEventListener('click', () => { $('q').value = el.dataset.q; state.page = 1; loadSearch(); });
+    });
+  })();
 
   function scheduleAuto() {
     if (state.autoTimer) clearInterval(state.autoTimer);

@@ -16,6 +16,55 @@ const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 
+// Kleinanzeigen — немецкий сайт: русские слова он не ищет.
+// Переводим популярные запросы, остальное честно сообщаем пользователю.
+const RU_DE = {
+  'айфон': 'iphone', 'айфона': 'iphone', 'айфоне': 'iphone', 'iphone': 'iphone',
+  'телефон': 'handy', 'телефона': 'handy', 'смартфон': 'smartphone', 'самсунг': 'samsung',
+  'ксяоми': 'xiaomi', 'сяоми': 'xiaomi', 'хуавей': 'huawei',
+  'ноутбук': 'laptop', 'ноутбука': 'laptop', 'лэптоп': 'laptop', 'макбук': 'macbook',
+  'компьютер': 'computer', 'монитор': 'monitor', 'клавиатура': 'tastatur',
+  'мышь': 'maus', 'наушники': 'kopfhörer', 'колонка': 'lautsprecher',
+  'телевизор': 'fernseher', 'камера': 'kamera', 'фотоаппарат': 'kamera',
+  'плейстейшн': 'playstation', 'приставка': 'konsole', 'xbox': 'xbox',
+  'диван': 'sofa', 'дивана': 'sofa', 'софа': 'sofa', 'кресло': 'sessel',
+  'стол': 'tisch', 'стул': 'stuhl', 'шкаф': 'schrank', 'кровать': 'bett',
+  'матрас': 'matratze', 'велосипед': 'fahrrad', 'велик': 'fahrrad', 'байк': 'bike',
+  'самокат': 'scooter', 'машина': 'auto', 'авто': 'auto', 'шины': 'reifen',
+  'часы': 'uhr', 'пылесос': 'staubsauger', 'холодильник': 'kühlschrank',
+  'стиралка': 'waschmaschine', 'стиральная': 'waschmaschine',
+  'микроволновка': 'mikrowelle', 'кофемашина': 'kaffeemaschine',
+  'чайник': 'wasserkocher', 'гриль': 'grill', 'газонокосилка': 'rasenmäher',
+  'куртка': 'jacke', 'пуховик': 'daunenjacke', 'ботинки': 'stiefel',
+  'кроссовки': 'sneakers', 'сноуборд': 'snowboard', 'лыжи': 'ski',
+  'палатка': 'zelt', 'гантель': 'hantel', 'гантели': 'hanteln',
+  'коляска': 'kinderwagen', 'кроватка': 'babybett', 'игрушки': 'spielzeug',
+  'лего': 'lego', 'инструмент': 'werkzeug', 'дрель': 'bohrmaschine',
+  'пила': 'säge', 'квартира': 'wohnung', 'дом': 'haus',
+  'продам': '', 'куплю': '', 'срочно': '',
+};
+
+/** Приводим запрос к виду, который понимает Kleinanzeigen */
+function normalizeQuery(qRaw) {
+  const orig = String(qRaw || '').trim();
+  if (!orig) return { q: 'angebote', note: null };
+  const hasCyr = /[а-яё]/i.test(orig);
+  if (!hasCyr) return { q: orig, note: null };
+  const out = [];
+  for (const w of orig.toLowerCase().split(/[\s,]+/)) {
+    if (!w) continue;
+    if (/^[a-z0-9äöüß+.-]+$/i.test(w)) { out.push(w); continue; }   // латиница/цифры — оставляем
+    const tr = RU_DE[w];
+    if (tr) out.push(tr);                                            // переводим по словарю
+    // непереводимые русские слова отбрасываем — KA по ним всё равно не ищет
+  }
+  if (out.length) {
+    const q = out.join(' ');
+    return { q, note: `Kleinanzeigen не ищет по-русски, поэтому «${orig}» искали как «${q}»` };
+  }
+  return { q: null, note: 'Kleinanzeigen — немецкий сайт и по-русски не ищет. Введите запрос латиницей: например, iphone, sofa, fahrrad, laptop.' };
+}
+
 app.use(express.json({ limit: '64kb' }));
 
 // --- утилиты -----------------------------------------------------------
@@ -39,8 +88,12 @@ async function fetchSearch({ q, minPrice, maxPrice, page, force }) {
   const url = ka.searchUrl({ q, minPrice, maxPrice, page });
   try {
     const { html } = await ka.get(url, { referer: ka.BASE + '/', force });
+    if (ka.looksBlocked(html)) throw Object.assign(new Error('blocked:challenge'), { blocked: true });
     const listings = parseSearch(html);
-    if (!listings.length) throw new Error('empty-parse');
+    if (!listings.length) {
+      // это не ошибка: Kleinanzeigen просто ничего не нашёл по запросу
+      return { mode: 'live', listings: [], url, empty: true };
+    }
     lastGood.set(key, { listings, ts: Date.now() });
     if (lastGood.size > 200) {
       const oldest = [...lastGood.entries()].sort((a, b) => a[1].ts - b[1].ts)[0][0];
@@ -56,8 +109,13 @@ async function fetchSearch({ q, minPrice, maxPrice, page, force }) {
     if (stale) {
       return { mode: 'cached', listings: store.decorate(stale.listings, stale.ts), url };
     }
-    const d = demo.demoSearch({ q, minPrice, maxPrice, page }, force);
-    return { mode: 'demo', listings: d.listings, url, fallbackReason: e.message };
+    // настоящая блокировка/сбой сети — только тогда демо, и честно об этом сообщаем
+    if (e.blocked || /network|blocked|http:/.test(e.message)) {
+      const d = demo.demoSearch({ q, minPrice, maxPrice, page }, force);
+      return { mode: 'demo', listings: d.listings, url, fallbackReason: e.message };
+    }
+    // прочее — пустой результат без демо-подмены
+    return { mode: 'live', listings: [], url, empty: true };
   }
 }
 
@@ -73,14 +131,27 @@ app.get('/api/search', async (req, res) => {
 
   if (wantDemo) {
     const d = demo.demoSearch({ q, minPrice, maxPrice, page }, force);
-    return res.json({ mode: 'demo', query: { q, minPrice, maxPrice, page }, listings: d.listings });
+    return res.json({
+      mode: 'demo',
+      notice: 'Демо-режим: показаны сгенерированные данные, а не реальные объявления.',
+      query: { q, minPrice, maxPrice, page },
+      listings: d.listings,
+    });
   }
 
-  const out = await fetchSearch({ q, minPrice, maxPrice, page, force });
+  const norm = normalizeQuery(q);
+  if (!norm.q) {
+    return res.json({ mode: 'live', query: { q, minPrice, maxPrice, page }, notice: norm.note, count: 0, listings: [] });
+  }
+
+  const out = await fetchSearch({ q: norm.q, minPrice, maxPrice, page, force });
+  const notice = norm.note
+    || (out.empty ? 'По этому запросу на Kleinanzeigen ничего не нашлось. Попробуйте иначе: iphone, sofa, fahrrad, laptop, e-bike…' : null);
   res.json({
     mode: out.mode,
     fallbackReason: out.fallbackReason || null,
-    query: { q, minPrice, maxPrice, page },
+    notice,
+    query: { q, effective: norm.q, minPrice, maxPrice, page },
     url: out.url,
     count: out.listings.length,
     listings: out.listings,

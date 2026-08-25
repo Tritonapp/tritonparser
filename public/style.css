@@ -85,6 +85,12 @@ input:focus,select:focus{border-color:var(--acc)}
 .spacer{flex:1}
 .banner{margin-top:12px;padding:10px 14px;border-radius:10px;font-size:13px;border:1px solid rgba(251,191,36,.35);background:rgba(251,191,36,.07);color:var(--warn)}
 .banner.live{border-color:rgba(56,189,248,.35);background:rgba(56,189,248,.07);color:var(--acc)}
+.banner.info{border-color:rgba(56,189,248,.35);background:rgba(56,189,248,.07);color:#9dd8f5}
+.banner.demo-banner{border-color:rgba(251,113,133,.5);background:rgba(251,113,133,.09);color:#fda4af}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px}
+.chip{background:var(--bg2);border:1px solid var(--line2);color:var(--mut);border-radius:999px;padding:6px 13px;font-size:12.5px;cursor:pointer;transition:.15s all}
+.chip:hover{border-color:var(--acc);color:var(--txt)}
+.empty .chips{margin-top:14px;justify-content:center}
 
 /* feed */
 .feed-head{display:flex;align-items:baseline;gap:14px;margin:30px 0 16px;flex-wrap:wrap}
