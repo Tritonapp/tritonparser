@@ -13,6 +13,16 @@ const store = require('./lib/store');
 const demo = require('./lib/demo');
 const cats = require('./lib/cats');
 
+// категории Kleinanzeigen (ID подтверждены из навигации сайта)
+const KA_CATEGORIES = {
+  161: 'Elektronik', 173: 'Handy & Telefon', 172: 'Audio & Hifi', 175: 'TV & Video',
+  278: 'Notebooks', 285: 'Tablets', 279: 'Konsolen', 176: 'Haushaltsgeräte',
+  80: 'Haus & Garten', 17: 'Familie, Kind & Baby', 130: 'Haustiere', 153: 'Mode & Beauty',
+  210: 'Auto, Rad & Boot', 73: 'Musik, Film & Bücher', 185: 'Freizeit & Hobby',
+  231: 'Tickets', 235: 'Unterricht & Kurse', 272: 'Zu verschenken',
+  297: 'Dienstleistungen', 400: 'Nachbarschaftshilfe', 102: 'Jobs', 195: 'Immobilien',
+};
+
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -84,14 +94,15 @@ function queryKey(q, minPrice, maxPrice, page) {
   return [String(q || '').toLowerCase().trim(), minPrice || 0, maxPrice || 0, page || 1].join('|');
 }
 
-async function fetchSearch({ q, minPrice, maxPrice, page, force, onlyToday, privateOnly }) {
-  const key = queryKey(q, minPrice, maxPrice, page) + (onlyToday ? '|today' : '') + (privateOnly ? '|priv' : '');
-  const url = ka.searchUrl({ q, minPrice, maxPrice, page, onlyToday, privateOnly });
+async function fetchSearch({ q, minPrice, maxPrice, page, force, onlyToday, privateOnly, category }) {
+  const key = queryKey(q, minPrice, maxPrice, page) + (onlyToday ? '|today' : '') + (privateOnly ? '|priv' : '') + (category ? '|c' + category : '');
+  const url = ka.searchUrl({ q, minPrice, maxPrice, page, onlyToday, privateOnly, category });
+  const catName = KA_CATEGORIES[category] || null;
   try {
     const { html } = await ka.get(url, { referer: ka.BASE + '/', force });
     if (ka.looksBlocked(html)) throw Object.assign(new Error('blocked:challenge'), { blocked: true });
     let listings = parseSearch(html)
-      .map(l => Object.assign({}, l, { category: cats.categorize(l.title, q) }));
+      .map(l => Object.assign({}, l, { category: catName || cats.categorize(l.title, q) }));
     const total = parseTotal(html);
     // системный фильтр: выкидываем лоты с платной плашкой TOP
     let droppedTop = 0;
@@ -160,7 +171,9 @@ app.get('/api/search', async (req, res) => {
 
   const onlyToday = req.query.today === '1';
   const noShops = req.query.all !== '1';   // системный фильтр: без магазинов и TOP (по умолчанию ВКЛ)
-  const out = await fetchSearch({ q: norm.q, minPrice, maxPrice, page, force, onlyToday, privateOnly: noShops });
+  const cat = clampInt(req.query.cat, 0, 999, 0);
+  const category = KA_CATEGORIES[cat] ? cat : 0;
+  const out = await fetchSearch({ q: norm.q, minPrice, maxPrice, page, force, onlyToday, privateOnly: noShops, category });
   const notice = norm.note
     || (out.empty && !onlyToday ? 'По этому запросу на Kleinanzeigen ничего не нашлось. Попробуйте иначе: iphone, sofa, fahrrad, laptop, e-bike…' : null);
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -169,7 +182,7 @@ app.get('/api/search', async (req, res) => {
     mode: out.mode,
     fallbackReason: out.fallbackReason || null,
     notice,
-    query: { q, effective: norm.q, minPrice, maxPrice, page, onlyToday, noShops },
+    query: { q, effective: norm.q, minPrice, maxPrice, page, onlyToday, noShops, cat: category, catName: KA_CATEGORIES[category] || null },
     url: out.url,
     total: out.total || null,
     droppedTop: out.droppedTop || 0,
