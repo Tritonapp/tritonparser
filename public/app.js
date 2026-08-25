@@ -141,6 +141,7 @@
     if (l.date && Date.now() - new Date(l.date + 'T12:00:00').getTime() < 36 * 3600e3) badges.push('<span class="badge new">NEW</span>');
     if (l.priceDrop) badges.push('<span class="badge drop">−' + l.priceDropPct + '%</span>');
     const tags = (l.tags || []).map(t => '<span class="tag">' + esc({ direkt: 'Direkt kaufen', versand: 'Versand', garantie: 'Garantie' }[t] || t) + '</span>').join('');
+    const priceTxt = fmt.price(l.price) + (l.negotiable ? ' VB' : '');
     return (
       '<article class="card" data-id="' + esc(l.id) + '" data-href="' + esc(l.href || '') + '">' +
       '<div class="c-media" style="' + (img ? 'background-image:url(' + img + ')' : '') + '">' +
@@ -150,10 +151,9 @@
       '</div>' +
       '<div class="c-body">' +
         '<div class="c-title">' + esc(l.title) + '</div>' +
-        '<div class="c-price-row"><span class="c-price">' + fmt.price(l.price) + '</span>' +
-          (l.negotiable ? '<span class="c-vb">VB</span>' : '') +
-          (l.oldPrice ? '<s class="c-old">' + fmt.price(l.oldPrice) + '</s>' : '') +
-        '</div>' +
+        '<div class="c-meta"><span class="c-cat">' + esc(l.category || 'Kleinanzeigen') + '</span><span class="c-sep">·</span><b>' + priceTxt + '</b>' +
+          (l.oldPrice ? ' <s class="c-old">' + fmt.price(l.oldPrice) + '</s>' : '') + '</div>' +
+        '<div class="c-growth"><span class="g-plus">+' + (l.interest || 0) + '</span><span class="g-lbl">прирост</span></div>' +
         '<div class="c-foot"><span class="c-loc">📍 ' + esc(l.location || '—') + '</span><span>' + esc(l.dateTxt || fmt.date(l.date) || '') + '</span></div>' +
         (tags ? '<div class="c-tags">' + tags + '</div>' : '') +
       '</div></article>'
@@ -168,8 +168,8 @@
       const items = j.items || [];
       $('trendStrip').innerHTML = items.length ? items.map(t => (
         '<div class="trend-card" data-id="' + esc(t.id) + '" data-href="' + esc(t.href || '') + '">' +
-          '<div class="t-score">' + (t.hot || 0) + '<small>SCORE</small></div>' +
-          '<div class="t-name"><b>' + esc(t.title) + '</b><span>' + fmt.price(t.price) + (t.location ? ' · ' + esc(t.location) : '') + '</span></div>' +
+          '<div class="t-score">+' + (t.interest || 0) + '<small>ПРИРОСТ</small></div>' +
+          '<div class="t-name"><b>' + esc(t.title) + '</b><span>' + esc(t.category || 'KL') + ' · ' + fmt.price(t.price) + (t.location ? ' · ' + esc(t.location) : '') + '</span></div>' +
           (t.priceDrop ? '<div class="t-up">−' + t.priceDropPct + '%</div>' : '') +
         '</div>'
       )).join('') : '<div class="empty">Пока мало истории: сделайте пару срезов — и здесь появятся лоты с динамикой.</div>';
@@ -180,9 +180,9 @@
       const hero = items.slice(0, 5);
       $('heroList').innerHTML = hero.length ? hero.map(t => (
         '<li data-id="' + esc(t.id) + '" data-href="' + esc(t.href || '') + '">' +
-          '<div class="hc-thumb">' + (t.image ? '<img src="' + imgProxy(t.image) + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:7px">' : '📷') + '</div>' +
-          '<div class="hc-name"><b>' + esc(t.title) + '</b><span>' + fmt.price(t.price) + (t.location ? ' · ' + esc(t.location) : '') + '</span></div>' +
-          '<div class="hc-hot">+' + (t.hot || 0) + '</div>' +
+          '<div class="hc-thumb">' + (t.image ? '<img src="' + imgProxy(t.image) + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:7px">' : 'Нет фото') + '</div>' +
+          '<div class="hc-name"><b>' + esc(t.title) + '</b><span>' + esc(t.category || 'KL') + ' · ' + fmt.price(t.price) + '</span></div>' +
+          '<div class="hc-hot">+' + (t.interest || t.hot || 0) + '</div>' +
         '</li>'
       )).join('') : '<li class="hc-empty">история набирается…</li>';
       document.querySelectorAll('#heroList li[data-id]').forEach(el => {
@@ -217,16 +217,17 @@
       renderAd({
         title: local.title,
         price: local.price, priceRaw: local.priceRaw, negotiable: local.negotiable,
-        oldPrice: local.oldPrice, date: local.date, image: local.image,
+        oldPrice: local.oldPrice, date: local.date, image: local.image, category: local.category,
         description: '…', details: [], images: local.image ? [local.image] : [],
-        seller: {}, href: local.href, id,
+        seller: {}, href: local.href, id, interest: local.interest,
+        interestSeries: local.interest != null ? [{ t: Date.now(), v: local.interest }] : [],
       }, state.mode);
     } else {
       $('mTitle').textContent = 'Загрузка…';
       $('mPrice').textContent = '—'; $('mOld').hidden = true; $('mDrop').hidden = true;
       $('mMeta').innerHTML = ''; $('mDesc').textContent = '…';
       $('mDetails').innerHTML = ''; $('mSeller').innerHTML = '';
-      $('mBadges').innerHTML = ''; $('mChart').innerHTML = '';
+      $('mBadges').innerHTML = ''; $('mChart').innerHTML = ''; $('mIChart').innerHTML = '';
       $('mImg').style.backgroundImage = '';
       $('mImg').innerHTML = '<span class="no-photo">Нет фото</span>';
     }
@@ -278,12 +279,14 @@
     const s = ad.seller || {};
     const sBits = [];
     if (s.name) sBits.push('Продавец: <b>' + esc(s.name) + '</b>');
+    else if (s.type) sBits.push('Продавец: <b>' + esc(s.type === 'Privater Nutzer' ? 'частное лицо' : s.type === 'Gewerblicher Nutzer' ? 'коммерческий' : s.type) + '</b>');
     if (s.initials) sBits.push('профиль: ' + esc(s.initials));
-    if (s.memberSince) sBits.push('на Kleinanzeigen с ' + esc(s.memberSince));
+    if (s.activeSince) sBits.push('на Kleinanzeigen с ' + esc(s.activeSince));
     if (s.badges && s.badges.length) sBits.push('значки: ' + s.badges.join(', '));
     $('mSeller').innerHTML = sBits.length ? sBits.join(' · ') : 'Информация о продавце доступна на странице объявления.';
 
     drawChart(ad.tracked && ad.tracked.prices ? ad.tracked.prices : []);
+    drawInterest(ad.interestSeries || []);
     $('mOpen').href = ad.href ? 'https://www.kleinanzeigen.de' + ad.href : '#';
   }
 
@@ -314,6 +317,32 @@
     const d0 = new Date(first.t), d1 = new Date(last.t);
     const drop = last.price < first.price ? '−' + Math.round((1 - last.price / first.price) * 100) + '%' : (last.price > first.price ? '+' + Math.round((last.price / first.price - 1) * 100) + '%' : 'без изменений');
     note.textContent = d0.toLocaleDateString('ru-RU') + ' → ' + d1.toLocaleDateString('ru-RU') + ' · ' + drop;
+  }
+
+  function drawInterest(series) {
+    const svg = $('mIChart');
+    const note = $('mIChartNote');
+    if (!series || series.length < 2) {
+      svg.innerHTML = '<line x1="0" y1="80" x2="320" y2="80" stroke="#22304d" stroke-dasharray="4 6"/><text x="160" y="72" fill="#64779c" font-size="11" text-anchor="middle">нужно ≥2 срезов — обновите ленту позже</text>';
+      note.textContent = 'Оценка интереса растёт по мере наблюдения за лотом. Просмотры/лайки Kleinanzeigen не публикует.';
+      return;
+    }
+    const W = 320, H = 120, pad = 10;
+    const vals = series.map(p => p.v);
+    const min = Math.min(...vals) * 0.9, max = Math.max(...vals) * 1.05 || 1;
+    const span = (max - min) || 1;
+    const pts = series.map((p, i) => {
+      const x = pad + (W - 2 * pad) * (i / (series.length - 1));
+      const y = H - pad - (H - 2 * pad) * ((p.v - min) / span);
+      return [x, y, p];
+    });
+    const line = pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+    const area = line + ` ${W - pad},${H - pad} ${pad},${H - pad}`;
+    const circles = pts.map(p => '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="3" fill="#4ade80"/>').join('');
+    svg.innerHTML =
+      '<polygon points="' + area + '" fill="rgba(74,222,128,.10)"/>' +
+      '<polyline points="' + line + '" fill="none" stroke="#4ade80" stroke-width="2"/>' + circles;
+    note.textContent = 'с ' + new Date(series[0].t).toLocaleDateString('ru-RU') + ': +' + series[0].v + ' → +' + series[series.length - 1].v;
   }
 
   function closeAd() {

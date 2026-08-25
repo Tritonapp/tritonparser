@@ -11,6 +11,7 @@ const ka = require('./lib/ka');
 const { parseSearch, parseDetail } = require('./lib/parse');
 const store = require('./lib/store');
 const demo = require('./lib/demo');
+const cats = require('./lib/cats');
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -102,7 +103,10 @@ async function fetchSearch({ q, minPrice, maxPrice, page, force }) {
     liveOkAt = Date.now();
     lastLiveError = null;
     const snapAt = store.recordSnapshot(key, listings);
-    return { mode: 'live', listings: store.decorate(listings, snapAt), url };
+    const decorated = store.decorate(listings, snapAt)
+      .map(l => Object.assign({}, l, { category: cats.categorize(l.title, q) }));
+    store.rememberRecent(decorated);
+    return { mode: 'live', listings: decorated, url };
   } catch (e) {
     lastLiveError = e.message + ' @ ' + new Date().toISOString();
     const stale = lastGood.get(key);
@@ -174,7 +178,17 @@ app.get('/api/ad/:id', async (req, res) => {
     const ad = parseDetail(html);
     ad.id = id;
     ad.href = href;
-    if (hist) ad.tracked = hist;
+    const recMeta = store.recent(200).find(l => String(l.id) === String(id));
+    if (hist) {
+      ad.tracked = hist;
+      const hotNow = recMeta ? (recMeta.hot || 25) : 25;
+      ad.interestSeries = hist.prices.map(p => ({
+        t: p.t,
+        v: store.interestFor(id, hotNow, hist.firstSeen, recMeta ? recMeta.priceDropPct : 0, p.t),
+      }));
+    } else {
+      ad.interestSeries = [{ t: Date.now(), v: store.interestFor(id, recMeta ? recMeta.hot || 25 : 25, null, 0, Date.now()) }];
+    }
     return res.json({ mode: 'live', ad });
   } catch (e) {
     if (hist) {
@@ -188,13 +202,37 @@ app.get('/api/ad/:id', async (req, res) => {
         fallbackReason: e.message,
       });
     }
+    const rec = store.recent(200).find(l => String(l.id) === String(id));
+    if (rec) {
+      return res.json({
+        mode: 'cached',
+        ad: {
+          id, href: rec.href, title: rec.title, image: rec.image,
+          price: rec.price, priceRaw: rec.priceRaw, negotiable: rec.negotiable,
+          oldPrice: rec.oldPrice, date: rec.date, category: rec.category,
+          interest: rec.interest,
+          interestSeries: [{ t: Date.now(), v: rec.interest || 0 }],
+          _partial: true,
+        },
+        fallbackReason: e.message,
+      });
+    }
     return res.json({ mode: 'demo', ad: demo.demoDetail(id), fallbackReason: e.message });
   }
 });
 
 app.get('/api/trending', (req, res) => {
   const limit = clampInt(req.query.limit, 1, 40, 12);
-  res.json({ mode: 'live', items: store.trending(limit) });
+  let items = store.trending(limit);
+  if (items.length < limit) {
+    // холодный старт: истории ещё нет — показываем самые горячие из последнего среза
+    const seen = new Set(items.map(i => i.id));
+    for (const r of store.recent(limit)) {
+      if (!seen.has(r.id)) { items.push(r); seen.add(r.id); }
+    }
+    items = items.slice(0, limit);
+  }
+  res.json({ mode: 'live', items, lastSnapshotAt: liveOkAt });
 });
 
 app.get('/api/status', (req, res) => {
@@ -245,6 +283,20 @@ app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'not found' });
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
+
+// --- прогрев данных (бережно: 2 запроса раз в 20 минут) ---
+const WARM_QUERIES = (process.env.WARM_QUERIES || 'angebote,iphone').split(',').map(s => s.trim()).filter(Boolean);
+let warmBusy = false;
+async function warm() {
+  if (warmBusy) return;
+  warmBusy = true;
+  try {
+    for (const q of WARM_QUERIES) await fetchSearch({ q, minPrice: 0, maxPrice: 0, page: 1, force: false });
+  } catch (_) { /* тихо */ }
+  warmBusy = false;
+}
+setTimeout(warm, 15000);
+setInterval(warm, 20 * 60 * 1000);
 
 app.listen(PORT, HOST, () => {
   console.log(`KL Ads listening on http://${HOST}:${PORT}`);

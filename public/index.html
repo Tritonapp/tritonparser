@@ -6,7 +6,7 @@
 <title>KL Ads — аналитика объявлений Kleinanzeigen</title>
 <meta name="description" content="Лента объявлений Kleinanzeigen с аналитикой: динамика цен, «горячие» лоты, фильтры.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f172a'/%3E%3Cpath d='M8 20 L14 12 L18 16 L24 9' stroke='%2338bdf8' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 
@@ -44,12 +44,13 @@
     </div>
     <div class="hero-card" aria-hidden="true">
       <div class="hc-head">
-        <span class="hc-title">Сейчас разгоняется</span>
+        <span class="hc-title">Сейчас разгоняется прирост</span>
         <span class="hc-badge">LIVE</span>
       </div>
       <ul class="hc-list" id="heroList">
         <li class="hc-empty">загрузка…</li>
       </ul>
+      <div class="hc-note">«Прирост» — оценка интереса: Kleinanzeigen не публикует просмотры чужих лотов, число считаем по срезам (цена, новизна, спрос)</div>
     </div>
   </div>
 </section>
@@ -182,6 +183,11 @@
         </div>
         <ul class="m-meta" id="mMeta"></ul>
         <div class="m-chart-box">
+          <h4>Рост интереса (оценка)</h4>
+          <svg id="mIChart" viewBox="0 0 320 120" preserveAspectRatio="none"></svg>
+          <div class="m-chart-note" id="mIChartNote"></div>
+        </div>
+        <div class="m-chart-box">
           <h4>История цены (по срезам)</h4>
           <svg id="mChart" viewBox="0 0 320 120" preserveAspectRatio="none"></svg>
           <div class="m-chart-note" id="mChartNote"></div>
@@ -198,6 +204,6 @@
   </div>
 </div>
 
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
