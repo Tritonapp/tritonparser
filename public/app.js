@@ -10,7 +10,7 @@
   const SEEN_TTL = 3 * 24 * 3600e3;   // помним лоты 3 дня
 
   const state = {
-    mode: null, page: 1, listings: [],
+    mode: null, page: 1, depth: 3, listings: [],
     autoTimer: null, autoRefresh: true,
     lastFetchAt: null, initialLoadDone: false,
   };
@@ -96,10 +96,10 @@
   }
 
   // ---------- загрузка ----------
-  async function loadSearch({ force = false, demo = false, fromAuto = false } = {}) {
+  async function loadSearch({ force = false, demo = false, fromAuto = false, append = false } = {}) {
     const grid = $('feedGrid');
 
-    if (!fromAuto && !force && !demo) {
+    if (!fromAuto && !force && !demo && !append) {
       const cached = cachedFeed();
       if (cached && Date.now() - cached.ts < 20 * 60e3) {
         state.listings = cached.j.listings || [];
@@ -116,7 +116,7 @@
     const q = ($('q').value.trim() || 'angebote');
     state.query = { q, min: $('min').value, max: $('max').value };
 
-    const p = new URLSearchParams({ q, page: String(state.page), force: force ? '1' : '0' });
+    const p = new URLSearchParams({ q, page: String(state.page), depth: String(state.depth), force: force ? '1' : '0' });
     if ($('min').value) p.set('min', $('min').value);
     if ($('max').value) p.set('max', $('max').value);
     if ($('todayOnly').checked) p.set('today', '1');
@@ -124,22 +124,36 @@
     const catSel = $('cat');
     if (catSel && catSel.value && catSel.value !== '0') p.set('cat', catSel.value);
     if (demo) p.set('mode', 'demo');
+    if (append) $('moreBtn').textContent = 'Загружаем ещё…';
 
     try {
       const r = await fetch('/api/search?' + p);
       const j = await r.json();
-      state.listings = j.listings || [];
-      state.page = (j.query && j.query.page) || state.page;
+      const fresh = j.listings || [];
+      if (append) {
+        const seen = new Set(state.listings.map(l => l.id));
+        state.listings = state.listings.concat(fresh.filter(l => !seen.has(l.id)));
+      } else {
+        state.listings = fresh;
+        state.page = (j.query && j.query.page) || state.page;
+      }
       if (demo) setMode('demo', null, j.notice || null);
-      else setMode(j.mode, j.fallbackReason, j.notice);
+      else if (!append) setMode(j.mode, j.fallbackReason, j.notice);
       state.lastFetchAt = Date.now();
       $('lastSnap').textContent = fmt.time(state.lastFetchAt);
-      renderFeed({ silent: !state.initialLoadDone ? true : false, fromAuto });
-      cacheFeed(j);
+      renderFeed({ silent: true, fromAuto });
+      if (!append) cacheFeed(j);
       state.initialLoadDone = true;
-      updateStats(j, q);
-      loadTrending();
+      if (!append) updateStats(j, q);
+      // кнопка «Показать ещё»: прячем, когда KA больше не отдаёт полных страниц
+      const full = fresh.length >= 20;
+      const capReached = state.listings.length >= 240;
+      $('pager').hidden = state.mode === 'demo' || (!full && !append) || capReached || (!j.hasMore && !full);
+      if (!full) $('pager').hidden = true;
+      $('moreBtn').textContent = 'Показать ещё ↓ (уже ' + state.listings.length + ')';
+      if (!append) loadTrending();
     } catch (e) {
+      $('moreBtn').textContent = 'Показать ещё ↓';
       if (!grid.children.length) {
         grid.innerHTML = '';
         $('feedEmpty').hidden = false;
@@ -197,9 +211,6 @@
     });
 
     $('feedCount').textContent = list.length ? '· ' + list.length + ' лотов' : '';
-    $('pageInfo').textContent = 'стр. ' + state.page;
-    $('pager').hidden = state.mode === 'demo';
-    $('prevPage').disabled = state.page <= 1;
     grid.innerHTML = marked.length ? marked.map(cardHTML).join('') : '';
 
     const empty = $('feedEmpty');
@@ -446,8 +457,7 @@
   $('todayOnly').addEventListener('change', () => { state.page = 1; loadSearch(); });
   $('noShops').addEventListener('change', () => { state.page = 1; loadSearch(); });
   $('cat').addEventListener('change', () => { state.page = 1; loadSearch(); });
-  $('prevPage').addEventListener('click', () => { if (state.page > 1) { state.page--; loadSearch(); } });
-  $('nextPage').addEventListener('click', () => { state.page++; loadSearch(); });
+  $('moreBtn').addEventListener('click', () => { state.page += state.depth; loadSearch({ append: true }); });
   $('modalX').addEventListener('click', closeAd);
   $('modalBack').addEventListener('click', e => { if (e.target === $('modalBack')) closeAd(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAd(); });

@@ -94,26 +94,49 @@ function queryKey(q, minPrice, maxPrice, page) {
   return [String(q || '').toLowerCase().trim(), minPrice || 0, maxPrice || 0, page || 1].join('|');
 }
 
-async function fetchSearch({ q, minPrice, maxPrice, page, force, onlyToday, privateOnly, category }) {
-  const key = queryKey(q, minPrice, maxPrice, page) + (onlyToday ? '|today' : '') + (privateOnly ? '|priv' : '') + (category ? '|c' + category : '');
-  const url = ka.searchUrl({ q, minPrice, maxPrice, page, onlyToday, privateOnly, category });
+async function fetchSearch({ q, minPrice, maxPrice, page, force, onlyToday, privateOnly, category, depth = 1 }) {
+  const key = queryKey(q, minPrice, maxPrice, page) + (onlyToday ? '|today' : '') + (privateOnly ? '|priv' : '') + (category ? '|c' + category : '') + '|d' + depth;
   const catName = KA_CATEGORIES[category] || null;
-  try {
-    const { html } = await ka.get(url, { referer: ka.BASE + '/', force });
-    if (ka.looksBlocked(html)) throw Object.assign(new Error('blocked:challenge'), { blocked: true });
-    let listings = parseSearch(html)
-      .map(l => Object.assign({}, l, { category: catName || cats.categorize(l.title, q) }));
-    const total = parseTotal(html);
+  const pages = [];
+  let firstPageError = null;
+
+  // забираем depth страниц подряд и склеиваем их в одну большую ленту
+  for (let p = page; p < page + depth; p++) {
+    const url = ka.searchUrl({ q, minPrice, maxPrice, page: p, onlyToday, privateOnly, category });
+    try {
+      const { html } = await ka.get(url, { referer: ka.BASE + '/', force });
+      if (ka.looksBlocked(html)) throw Object.assign(new Error('blocked:challenge'), { blocked: true });
+      const listings = parseSearch(html);
+      if (!listings.length) break;               // дальше страниц нет
+      pages.push({ listings, total: parseTotal(html) });
+    } catch (e) {
+      if (p === page) firstPageError = e;        // упала первая страница — ошибка запроса
+      break;                                     // глубже не идём
+    }
+  }
+
+  if (!firstPageError && pages.length) {
+    const merged = [];
+    const seenIds = new Set();
+    let total = null;
+    for (const pg of pages) {
+      total = total || pg.total;
+      for (const l of pg.listings) {
+        if (seenIds.has(l.id)) continue;         // дубли между страницами
+        seenIds.add(l.id);
+        merged.push(Object.assign({}, l, { category: catName || cats.categorize(l.title, q) }));
+      }
+    }
     // системный фильтр: выкидываем лоты с платной плашкой TOP
     let droppedTop = 0;
+    let listings = merged;
     if (privateOnly) {
       const before = listings.length;
       listings = listings.filter(l => !l.isTop);
       droppedTop = before - listings.length;
     }
     if (!listings.length) {
-      // это не ошибка: Kleinanzeigen просто ничего не нашёл по запросу
-      return { mode: 'live', listings: [], url, empty: true, total };
+      return { mode: 'live', listings: [], url: ka.searchUrl({ q, minPrice, maxPrice, page, onlyToday, privateOnly, category }), empty: true, total };
     }
     lastGood.set(key, { listings, ts: Date.now() });
     if (lastGood.size > 200) {
@@ -125,21 +148,27 @@ async function fetchSearch({ q, minPrice, maxPrice, page, force, onlyToday, priv
     const snapAt = store.recordSnapshot(key, listings);
     const decorated = store.decorate(listings, snapAt);
     store.rememberRecent(decorated);
-    return { mode: 'live', listings: decorated, url, total, snapshotAt: snapAt, droppedTop };
-  } catch (e) {
-    lastLiveError = e.message + ' @ ' + new Date().toISOString();
-    const stale = lastGood.get(key);
-    if (stale) {
-      return { mode: 'cached', listings: store.decorate(stale.listings, stale.ts), url };
-    }
-    // настоящая блокировка/сбой сети — только тогда демо, и честно об этом сообщаем
-    if (e.blocked || /network|blocked|http:/.test(e.message)) {
-      const d = demo.demoSearch({ q, minPrice, maxPrice, page }, force);
-      return { mode: 'demo', listings: d.listings, url, fallbackReason: e.message };
-    }
-    // прочее — пустой результат без демо-подмены
-    return { mode: 'live', listings: [], url, empty: true };
+    return {
+      mode: 'live', listings: decorated, url: ka.searchUrl({ q, minPrice, maxPrice, page, onlyToday, privateOnly, category }),
+      total, snapshotAt: snapAt, droppedTop,
+      pagesFetched: pages.length,
+      hasMore: pages[pages.length - 1].listings.length >= 10,
+    };
   }
+
+  // первая страница не далась — fallback
+  const e = firstPageError || new Error('empty');
+  const url = ka.searchUrl({ q, minPrice, maxPrice, page, onlyToday, privateOnly, category });
+  lastLiveError = e.message + ' @ ' + new Date().toISOString();
+  const stale = lastGood.get(key);
+  if (stale) {
+    return { mode: 'cached', listings: store.decorate(stale.listings, stale.ts), url };
+  }
+  if (e.blocked || /network|blocked|http:/.test(e.message)) {
+    const d = demo.demoSearch({ q, minPrice, maxPrice, page }, force);
+    return { mode: 'demo', listings: d.listings, url, fallbackReason: e.message };
+  }
+  return { mode: 'live', listings: [], url, empty: true };
 }
 
 // --- API ----------------------------------------------------------------
@@ -173,7 +202,8 @@ app.get('/api/search', async (req, res) => {
   const noShops = req.query.all !== '1';   // системный фильтр: без магазинов и TOP (по умолчанию ВКЛ)
   const cat = clampInt(req.query.cat, 0, 999, 0);
   const category = KA_CATEGORIES[cat] ? cat : 0;
-  const out = await fetchSearch({ q: norm.q, minPrice, maxPrice, page, force, onlyToday, privateOnly: noShops, category });
+  const depth = clampInt(req.query.depth, 1, 5, 3);
+  const out = await fetchSearch({ q: norm.q, minPrice, maxPrice, page, force, onlyToday, privateOnly: noShops, category, depth });
   const notice = norm.note
     || (out.empty && !onlyToday ? 'По этому запросу на Kleinanzeigen ничего не нашлось. Попробуйте иначе: iphone, sofa, fahrrad, laptop, e-bike…' : null);
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -189,6 +219,9 @@ app.get('/api/search', async (req, res) => {
     newToday,
     snapshotAt: out.snapshotAt || Date.now(),
     count: out.listings.length,
+    pagesFetched: out.pagesFetched || 1,
+    hasMore: out.hasMore !== false,
+    depth,
     listings: out.listings,
   });
 });
