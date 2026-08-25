@@ -207,18 +207,6 @@
       document.querySelectorAll('.trend-card').forEach(el => {
         el.addEventListener('click', () => openAd(el.dataset.id, el.dataset.href));
       });
-
-      const hero = items.slice(0, 5);
-      $('heroList').innerHTML = hero.length ? hero.map(t => (
-        '<li data-id="' + esc(t.id) + '" data-href="' + esc(t.href || '') + '">' +
-          '<div class="hc-thumb">' + (t.image ? '<img src="' + imgProxy(t.image) + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:7px">' : 'Нет фото') + '</div>' +
-          '<div class="hc-name"><b>' + esc(t.title) + '</b><span>' + esc(t.category || 'KL') + ' · ' + fmt.price(t.price) + '</span></div>' +
-          '<div class="hc-hot">+' + (t.interest || t.hot || 0) + '</div>' +
-        '</li>'
-      )).join('') : '<li class="hc-empty">история набирается…</li>';
-      document.querySelectorAll('#heroList li[data-id]').forEach(el => {
-        el.addEventListener('click', () => openAd(el.dataset.id, el.dataset.href));
-      });
     } catch (_) { /* тихо */ }
   }
 
