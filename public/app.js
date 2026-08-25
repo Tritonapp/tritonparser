@@ -1,24 +1,22 @@
-/* KL Ads — фронтенд: лента, фильтры, тренды, модалка лота, график цены */
+/* KL Ads — фронтенд: живая лента с потоком новых объявлений */
 'use strict';
 
 (() => {
   const $ = (id) => document.getElementById(id);
-  const POPULAR = ['iphone 15', 'laptop', 'e-bike', 'sofa', 'ps5', 'fahrrad', 'kopfhörer', '_waschmaschine'];
+  const POPULAR = ['iphone 15', 'laptop', 'e-bike', 'sofa', 'ps5', 'fahrrad', 'kopfhörer'];
+  const SEEN_KEY = 'klads:seen';
+  const FEED_KEY = 'klads:lastFeed';
+  const POLL_MS = 75 * 1000;          // автоопрос ленты
+  const SEEN_TTL = 3 * 24 * 3600e3;   // помним лоты 3 дня
+
   const state = {
-    mode: null,          // 'live' | 'demo' | 'cached'
-    page: 1,
-    listings: [],
-    query: { q: 'iphone 15', min: '', max: '' },
-    autoTimer: null,
-    autoRefresh: true,
-    lastFetchAt: null,
+    mode: null, page: 1, listings: [],
+    autoTimer: null, autoRefresh: true,
+    lastFetchAt: null, initialLoadDone: false,
   };
 
   const fmt = {
-    price(v) {
-      if (v == null) return '—';
-      return v.toLocaleString('ru-RU') + ' €';
-    },
+    price(v) { return v == null ? '—' : v.toLocaleString('ru-RU') + ' €'; },
     date(d) {
       if (!d) return '';
       try { return new Date(d + 'T12:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }); }
@@ -28,12 +26,37 @@
       if (!ts) return '—';
       return new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
     },
+    timeSec(ts) {
+      if (!ts) return '—';
+      return new Date(ts).toLocaleTimeString('ru-RU');
+    },
   };
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
   function imgProxy(u) { return u ? '/api/img?u=' + encodeURIComponent(u) : null; }
+
+  // ---------- память о виденных лотах (для подсветки новых) ----------
+  function loadSeen() {
+    try { return JSON.parse(localStorage.getItem(SEEN_KEY) || 'null') || null; }
+    catch (_) { return null; }
+  }
+  function saveSeen(map) {
+    try {
+      const cut = Date.now() - SEEN_TTL;
+      for (const k of Object.keys(map)) if (map[k] < cut) delete map[k];
+      localStorage.setItem(SEEN_KEY, JSON.stringify(map));
+    } catch (_) { /* переполнение — не критично */ }
+  }
+
+  // ---------- кэш последнего среза ----------
+  function cacheFeed(j) {
+    try { localStorage.setItem(FEED_KEY, JSON.stringify({ ts: Date.now(), j })); } catch (_) {}
+  }
+  function cachedFeed() {
+    try { const s = localStorage.getItem(FEED_KEY); return s ? JSON.parse(s) : null; } catch (_) { return null; }
+  }
 
   // ---------- баннеры / режим ----------
   function setMode(mode, reason, notice) {
@@ -43,8 +66,7 @@
     pill.textContent = mode === 'live' ? 'LIVE · kleinanzeigen.de' : mode === 'cached' ? 'КЭШ (нет доступа)' : 'ДЕМО-режим';
     const b = $('banner');
     if (notice) {
-      b.hidden = false; b.className = 'banner info';
-      b.textContent = notice;
+      b.hidden = false; b.className = 'banner info'; b.textContent = notice;
     } else if (mode === 'live') {
       b.hidden = true;
     } else if (mode === 'cached') {
@@ -53,36 +75,45 @@
     } else {
       b.hidden = false; b.className = 'banner demo-banner';
       b.innerHTML = '<b>ДЕМО-РЕЖИМ:</b> ' + (reason
-        ? 'Kleinanzeigen не отвечает с этого сервера (' + esc(reason) + '), поэтому ниже сгенерированные примеры, а не реальные объявления. Интерфейс полностью рабочий.'
+        ? 'Kleinanzeigen не отвечает с этого сервера (' + esc(reason) + '), поэтому ниже сгенерированные примеры. Интерфейс полностью рабочий.'
         : 'ниже сгенерированные примеры, а не реальные объявления. Интерфейс полностью рабочий.');
     }
   }
 
-  // ---------- поиск ----------
-  function cacheFeed(j) {
-    try { localStorage.setItem('klads:lastFeed', JSON.stringify({ ts: Date.now(), j })); } catch (_) {}
-  }
-  function cachedFeed() {
-    try {
-      const s = localStorage.getItem('klads:lastFeed');
-      return s ? JSON.parse(s) : null;
-    } catch (_) { return null; }
+  function showToast(text) {
+    const t = $('toast');
+    t.textContent = text;
+    t.classList.add('show');
+    clearTimeout(showToast._h);
+    showToast._h = setTimeout(() => t.classList.remove('show'), 5000);
   }
 
-  async function loadSearch({ force = false, demo = false } = {}) {
+  // ---------- ключ свежести для сортировки "сначала новые" ----------
+  function freshKey(l) {
+    const t = (l.dateTxt || '').match(/(\d{1,2}):(\d{2})/);
+    const time = t ? String(t[1]).padStart(2, '0') + t[2] : '';
+    return (l.date || '0000-00-00') + ' ' + time;
+  }
+
+  // ---------- загрузка ----------
+  async function loadSearch({ force = false, demo = false, fromAuto = false } = {}) {
     const grid = $('feedGrid');
-    const cached = cachedFeed();
-    if (cached && Date.now() - cached.ts < 20 * 60e3 && !force && !demo) {
-      // мгновенно показываем последний срез, свежий придёт следом
-      state.listings = cached.j.listings || [];
-      state.mode = cached.j.mode;
-      setMode(cached.j.mode, null, 'Показан последний срез (' + fmt.time(cached.ts) + ') — обновляем…');
-      renderFeed();
-    } else {
-      grid.innerHTML = '<div class="empty">Загружаем данные с Kleinanzeigen…<br><span class="muted">первый запрос может занять до 30 секунд</span></div>';
-      $('feedEmpty').hidden = true;
+
+    if (!fromAuto && !force && !demo) {
+      const cached = cachedFeed();
+      if (cached && Date.now() - cached.ts < 20 * 60e3) {
+        state.listings = cached.j.listings || [];
+        state.mode = cached.j.mode;
+        state.page = (cached.j.query && cached.j.query.page) || 1;
+        setMode(cached.j.mode, null, 'Показан последний срез (' + fmt.time(cached.ts) + ') — обновляем…');
+        renderFeed({ silent: true });
+      } else {
+        grid.innerHTML = '<div class="empty">Загружаем данные с Kleinanzeigen…<br><span class="muted">первый запрос может занять до 30 секунд</span></div>';
+        $('feedEmpty').hidden = true;
+      }
     }
-    const q = $('q').value.trim() || 'angebote';
+
+    const q = ($('q').value.trim() || 'angebote');
     state.query = { q, min: $('min').value, max: $('max').value };
 
     const p = new URLSearchParams({ q, page: String(state.page), force: force ? '1' : '0' });
@@ -100,32 +131,40 @@
       else setMode(j.mode, j.fallbackReason, j.notice);
       state.lastFetchAt = Date.now();
       $('lastSnap').textContent = fmt.time(state.lastFetchAt);
-      const eff = j.query && j.query.effective;
-      const today = $('todayOnly').checked;
-      $('feedQuery').textContent = (q === 'angebote')
-        ? (today ? '🆕 свежие объявления · за сегодня' : 'все объявления Kleinanzeigen')
-        : 'запрос: «' + (eff || q) + '»' + (eff && eff !== q ? ' (по вашему «' + q + '»)' : '');
-      const st = [];
-      if (j.newToday) st.push('новых сегодня: ' + j.newToday);
-      if (j.total) st.push('всего на Kleinanzeigen: ' + j.total.toLocaleString('ru-RU'));
-      if (j.snapshotAt) st.push('срез: ' + fmt.time(j.snapshotAt));
-      $('feedStats').textContent = st.join(' · ');
-      renderFeed();
+      renderFeed({ silent: !state.initialLoadDone ? true : false, fromAuto });
       cacheFeed(j);
-      loadStatus();
+      state.initialLoadDone = true;
+      updateStats(j, q);
       loadTrending();
     } catch (e) {
-      grid.innerHTML = '';
-      $('feedEmpty').hidden = false;
-      $('feedEmpty').textContent = 'Ошибка загрузки: ' + e.message;
+      if (!grid.children.length) {
+        grid.innerHTML = '';
+        $('feedEmpty').hidden = false;
+        $('feedEmpty').textContent = 'Ошибка загрузки: ' + e.message;
+      }
     }
   }
 
+  function updateStats(j, q) {
+    const eff = j.query && j.query.effective;
+    const today = $('todayOnly').checked;
+    $('feedQuery').textContent = (q === 'angebote')
+      ? (today ? '🆕 свежие объявления · за сегодня' : 'все объявления Kleinanzeigen')
+      : 'запрос: «' + (eff || q) + '»' + (eff && eff !== q ? ' (по вашему «' + q + '»)' : '');
+    const st = [];
+    if (j.newToday) st.push('новых сегодня: ' + j.newToday);
+    if (j.total) st.push('всего на Kleinanzeigen: ' + j.total.toLocaleString('ru-RU'));
+    st.push('<span class="dot-live"><i></i> обновлено ' + fmt.timeSec(Date.now()) + '</span>');
+    $('feedStats').innerHTML = st.join(' · ');
+    loadStatus();
+  }
+
+  // ---------- сортировка и отрисовка ----------
   function sortListings(list) {
     const s = $('sort').value;
     const by = {
+      new: (a, b) => freshKey(b).localeCompare(freshKey(a)),
       hot: (a, b) => (b.hot || 0) - (a.hot || 0),
-      new: (a, b) => (b.date || '').localeCompare(a.date || ''),
       cheap: (a, b) => (a.price ?? 1e12) - (b.price ?? 1e12),
       expensive: (a, b) => (b.price ?? -1) - (a.price ?? -1),
       drop: (a, b) => (b.priceDrop || 0) - (a.priceDrop || 0),
@@ -133,18 +172,30 @@
     return list.slice().sort(by);
   }
 
-  function renderFeed() {
+  function renderFeed({ silent = false, fromAuto = false } = {}) {
     const grid = $('feedGrid');
     let list = sortListings(state.listings);
     if ($('hotOnly').checked) list = list.filter(l => (l.hot || 0) >= 25);
+
+    // какие лоты пользователь ещё не видел?
+    const seenMap = loadSeen() || {};
+    const hadBaseline = Object.keys(seenMap).length > 0;
+    let newCount = 0;
+    const marked = list.map(l => {
+      const isNew = hadBaseline && !seenMap[l.id] && !l._demo;
+      if (isNew) newCount++;
+      return Object.assign({}, l, { _isNew: isNew });
+    });
+
     $('feedCount').textContent = list.length ? '· ' + list.length + ' лотов' : '';
     $('pageInfo').textContent = 'стр. ' + state.page;
     $('pager').hidden = state.mode === 'demo';
     $('prevPage').disabled = state.page <= 1;
-    grid.innerHTML = list.length ? list.map(cardHTML).join('') : '';
+    grid.innerHTML = marked.length ? marked.map(cardHTML).join('') : '';
+
     const empty = $('feedEmpty');
-    empty.hidden = list.length > 0;
-    if (!list.length) {
+    empty.hidden = marked.length > 0;
+    if (!marked.length) {
       empty.innerHTML = state.mode === 'demo'
         ? 'Пусто. Измените запрос.'
         : ($('todayOnly').checked
@@ -154,9 +205,18 @@
         el.addEventListener('click', () => { $('q').value = el.dataset.q; state.page = 1; loadSearch(); });
       });
     }
+
     grid.querySelectorAll('.card').forEach(el => {
       el.addEventListener('click', () => openAd(el.dataset.id, el.dataset.href));
     });
+
+    // запоминаем показанные лоты как виденные
+    const updated = Object.assign({}, seenMap);
+    for (const l of list) updated[l.id] = Date.now();
+    saveSeen(updated);
+
+    if (!silent && !fromAuto && newCount > 0) showToast('🆕 Появилось новых объявлений: ' + newCount);
+    if (fromAuto && newCount > 0) showToast('🆕 +' + newCount + ' новых объявлений');
   }
 
   function chipHTML(q) {
@@ -166,15 +226,15 @@
   function cardHTML(l) {
     const img = imgProxy(l.image);
     const badges = [];
+    if (l._isNew) badges.push('<span class="badge new">НОВОЕ</span>');
     if (state.mode === 'demo') badges.push('<span class="badge drop">ДЕМО</span>');
     if ((l.hot || 0) >= 25) badges.push('<span class="badge hot">🔥 ' + l.hot + '</span>');
     if (l.isTop) badges.push('<span class="badge top">TOP</span>');
-    if (l.date && Date.now() - new Date(l.date + 'T12:00:00').getTime() < 36 * 3600e3) badges.push('<span class="badge new">NEW</span>');
     if (l.priceDrop) badges.push('<span class="badge drop">−' + l.priceDropPct + '%</span>');
     const tags = (l.tags || []).map(t => '<span class="tag">' + esc({ direkt: 'Direkt kaufen', versand: 'Versand', garantie: 'Garantie' }[t] || t) + '</span>').join('');
     const priceTxt = fmt.price(l.price) + (l.negotiable ? ' VB' : '');
     return (
-      '<article class="card" data-id="' + esc(l.id) + '" data-href="' + esc(l.href || '') + '">' +
+      '<article class="card' + (l._isNew ? ' card-new' : '') + '" data-id="' + esc(l.id) + '" data-href="' + esc(l.href || '') + '">' +
       '<div class="c-media" style="' + (img ? 'background-image:url(' + img + ')' : '') + '">' +
         (!img ? '<span class="no-photo">Нет фото</span>' : '') +
         '<div class="c-badges">' + badges.join('') + '</div>' +
@@ -191,7 +251,7 @@
     );
   }
 
-  // ---------- тренды / hero ----------
+  // ---------- тренды ----------
   async function loadTrending() {
     try {
       const r = await fetch('/api/trending?limit=12');
@@ -230,7 +290,6 @@
     document.body.style.overflow = 'hidden';
     $('mOpen').href = href ? 'https://www.kleinanzeigen.de' + href : '#';
 
-    // 1) мгновенно показываем то, что уже знаем из ленты
     const local = findLocal(id);
     if (local) {
       renderAd({
@@ -251,7 +310,6 @@
       $('mImg').innerHTML = '<span class="no-photo">Нет фото</span>';
     }
 
-    // 2) догружаем полную карточку
     const p = new URLSearchParams({ href: href || '' });
     if (state.mode === 'demo') p.set('mode', 'demo');
     try {
@@ -315,7 +373,7 @@
     const note = $('mChartNote');
     if (!prices || prices.length < 2) {
       svg.innerHTML = '<line x1="0" y1="60" x2="320" y2="60" stroke="#22304d" stroke-dasharray="4 6"/><text x="160" y="52" fill="#64779c" font-size="11" text-anchor="middle">нужно ≥2 срезов — обновите ленту позже</text>';
-      note.textContent = 'График строится по срезам нашего сервера: чем чаще смотрите выдачу, тем плотнее история.';
+      note.textContent = 'График строится по срезам нашего сервера.';
       return;
     }
     const W = 320, H = 120, pad = 10;
@@ -334,16 +392,15 @@
       '<polygon points="' + area + '" fill="rgba(56,189,248,.12)"/>' +
       '<polyline points="' + line + '" fill="none" stroke="#38bdf8" stroke-width="2"/>' + circles;
     const first = pts[0][2], last = pts[pts.length - 1][2];
-    const d0 = new Date(first.t), d1 = new Date(last.t);
     const drop = last.price < first.price ? '−' + Math.round((1 - last.price / first.price) * 100) + '%' : (last.price > first.price ? '+' + Math.round((last.price / first.price - 1) * 100) + '%' : 'без изменений');
-    note.textContent = d0.toLocaleDateString('ru-RU') + ' → ' + d1.toLocaleDateString('ru-RU') + ' · ' + drop;
+    note.textContent = new Date(first.t).toLocaleDateString('ru-RU') + ' → ' + new Date(last.t).toLocaleDateString('ru-RU') + ' · ' + drop;
   }
 
   function drawInterest(series) {
     const svg = $('mIChart');
     const note = $('mIChartNote');
     if (!series || series.length < 2) {
-      svg.innerHTML = '<line x1="0" y1="80" x2="320" y2="80" stroke="#22304d" stroke-dasharray="4 6"/><text x="160" y="72" fill="#64779c" font-size="11" text-anchor="middle">нужно ≥2 срезов — обновите ленту позже</text>';
+      svg.innerHTML = '<line x1="0" y1="80" x2="320" y2="80" stroke="#22304d" stroke-dasharray="4 6"/><text x="160" y="72" fill="#64779c" font-size="11" text-anchor="middle">нужно ≥2 срезов</text>';
       note.textContent = 'Оценка интереса растёт по мере наблюдения за лотом. Просмотры/лайки Kleinanzeigen не публикует.';
       return;
     }
@@ -375,8 +432,8 @@
   $('btnRefresh').addEventListener('click', () => loadSearch({ force: true }));
   $('btnDemo').addEventListener('click', () => { loadSearch({ demo: true }); });
   $('btnStart').addEventListener('click', () => { document.getElementById('feed').scrollIntoView({ behavior: 'smooth' }); });
-  $('sort').addEventListener('change', renderFeed);
-  $('hotOnly').addEventListener('change', renderFeed);
+  $('sort').addEventListener('change', () => renderFeed({ silent: true }));
+  $('hotOnly').addEventListener('change', () => renderFeed({ silent: true }));
   $('todayOnly').addEventListener('change', () => { state.page = 1; loadSearch(); });
   $('prevPage').addEventListener('click', () => { if (state.page > 1) { state.page--; loadSearch(); } });
   $('nextPage').addEventListener('click', () => { state.page++; loadSearch(); });
@@ -389,11 +446,10 @@
     scheduleAuto();
   });
 
-  // чипсы популярных запросов под строкой поиска
   (function renderChips() {
     const row = $('chipsRow');
     if (!row) return;
-    row.innerHTML = POPULAR.filter(q => !q.startsWith('_')).map(chipHTML).join('');
+    row.innerHTML = POPULAR.map(chipHTML).join('');
     row.querySelectorAll('.chip').forEach(el => {
       el.addEventListener('click', () => { $('q').value = el.dataset.q; state.page = 1; loadSearch(); });
     });
@@ -402,18 +458,19 @@
   function scheduleAuto() {
     if (state.autoTimer) clearInterval(state.autoTimer);
     if (!state.autoRefresh) return;
-    // каждые 3 минуты снимаем срез — так накапливается история цен
     state.autoTimer = setInterval(() => {
-      if (state.mode !== 'demo') loadSearch({ force: true });
-    }, 2 * 60 * 1000);
+      if (document.visibilityState === 'visible' && state.mode !== 'demo') {
+        loadSearch({ fromAuto: true });
+      }
+    }, POLL_MS);
   }
 
-  // вернулись на вкладку -> подтянуть свежий срез (не чаще раза в минуту)
+  // вернулись на вкладку -> сразу свежий срез (не чаще раза в минуту)
   let lastVisibleRefresh = 0;
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && Date.now() - lastVisibleRefresh > 60000) {
       lastVisibleRefresh = Date.now();
-      if (state.mode !== 'demo') loadSearch({ force: true });
+      if (state.mode !== 'demo') loadSearch({ fromAuto: true });
     }
   });
 
