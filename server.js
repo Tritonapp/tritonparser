@@ -292,19 +292,35 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// --- прогрев данных (бережно: 2 запроса раз в 20 минут) ---
-const WARM_QUERIES = (process.env.WARM_QUERIES || 'angebote,iphone').split(',').map(s => s.trim()).filter(Boolean);
+// --- прогрев данных (бережно: пара запросов раз в 20 минут) ---
+const WARM_JOBS = [
+  { q: 'angebote', onlyToday: true },
+  { q: 'iphone', onlyToday: false },
+];
 let warmBusy = false;
 async function warm() {
   if (warmBusy) return;
   warmBusy = true;
   try {
-    for (const q of WARM_QUERIES) await fetchSearch({ q, minPrice: 0, maxPrice: 0, page: 1, force: false });
+    for (const job of WARM_JOBS) {
+      await fetchSearch({ q: job.q, minPrice: 0, maxPrice: 0, page: 1, force: false, onlyToday: job.onlyToday });
+    }
   } catch (_) { /* тихо */ }
   warmBusy = false;
 }
-setTimeout(warm, 15000);
+setTimeout(warm, 12000);
 setInterval(warm, 20 * 60 * 1000);
+
+// --- не даём бесплатному инстансу засыпать (пинг своего публичного URL раз в 10 мин) ---
+const PUBLIC_URL = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL || '';
+if (PUBLIC_URL) {
+  setInterval(async () => {
+    try {
+      await fetch(PUBLIC_URL + '/api/status', { signal: AbortSignal.timeout(20000) });
+      console.log('[keep-awake] ping ok', new Date().toISOString());
+    } catch (_) { /* тихо */ }
+  }, 10 * 60 * 1000);
+}
 
 app.listen(PORT, HOST, () => {
   console.log(`KL Ads listening on http://${HOST}:${PORT}`);

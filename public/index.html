@@ -6,7 +6,7 @@
 <title>KL Ads — аналитика объявлений Kleinanzeigen</title>
 <meta name="description" content="Лента объявлений Kleinanzeigen с аналитикой: динамика цен, «горячие» лоты, фильтры.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f172a'/%3E%3Cpath d='M8 20 L14 12 L18 16 L24 9' stroke='%2338bdf8' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 
@@ -76,7 +76,7 @@
         </select>
       </label>
       <label class="chk"><input type="checkbox" id="hotOnly"> только «горячие»</label>
-      <label class="chk"><input type="checkbox" id="todayOnly"> только размещённые сегодня</label>
+      <label class="chk"><input type="checkbox" id="todayOnly" checked> только размещённые сегодня</label>
       <span class="spacer"></span>
       <button class="btn ghost sm" id="btnRefresh" title="Принудительно снять свежий срез">↻ Свежий срез</button>
       <label class="chk"><input type="checkbox" id="autoRefresh" checked> автообновление</label>
@@ -206,6 +206,6 @@
   </div>
 </div>
 
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

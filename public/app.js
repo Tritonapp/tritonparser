@@ -59,10 +59,29 @@
   }
 
   // ---------- поиск ----------
+  function cacheFeed(j) {
+    try { localStorage.setItem('klads:lastFeed', JSON.stringify({ ts: Date.now(), j })); } catch (_) {}
+  }
+  function cachedFeed() {
+    try {
+      const s = localStorage.getItem('klads:lastFeed');
+      return s ? JSON.parse(s) : null;
+    } catch (_) { return null; }
+  }
+
   async function loadSearch({ force = false, demo = false } = {}) {
     const grid = $('feedGrid');
-    grid.innerHTML = '<div class="empty">Загружаем данные с Kleinanzeigen…<br><span class="muted">первый запрос может занять до 30 секунд</span></div>';
-    $('feedEmpty').hidden = true;
+    const cached = cachedFeed();
+    if (cached && Date.now() - cached.ts < 20 * 60e3 && !force && !demo) {
+      // мгновенно показываем последний срез, свежий придёт следом
+      state.listings = cached.j.listings || [];
+      state.mode = cached.j.mode;
+      setMode(cached.j.mode, null, 'Показан последний срез (' + fmt.time(cached.ts) + ') — обновляем…');
+      renderFeed();
+    } else {
+      grid.innerHTML = '<div class="empty">Загружаем данные с Kleinanzeigen…<br><span class="muted">первый запрос может занять до 30 секунд</span></div>';
+      $('feedEmpty').hidden = true;
+    }
     const q = $('q').value.trim() || 'angebote';
     state.query = { q, min: $('min').value, max: $('max').value };
 
@@ -82,13 +101,17 @@
       state.lastFetchAt = Date.now();
       $('lastSnap').textContent = fmt.time(state.lastFetchAt);
       const eff = j.query && j.query.effective;
-      $('feedQuery').textContent = 'запрос: «' + (eff || q) + '»' + (eff && eff !== q ? ' (по вашему «' + q + '»)' : '');
+      const today = $('todayOnly').checked;
+      $('feedQuery').textContent = (q === 'angebote')
+        ? (today ? '🆕 свежие объявления · за сегодня' : 'все объявления Kleinanzeigen')
+        : 'запрос: «' + (eff || q) + '»' + (eff && eff !== q ? ' (по вашему «' + q + '»)' : '');
       const st = [];
       if (j.newToday) st.push('новых сегодня: ' + j.newToday);
       if (j.total) st.push('всего на Kleinanzeigen: ' + j.total.toLocaleString('ru-RU'));
       if (j.snapshotAt) st.push('срез: ' + fmt.time(j.snapshotAt));
       $('feedStats').textContent = st.join(' · ');
       renderFeed();
+      cacheFeed(j);
       loadStatus();
       loadTrending();
     } catch (e) {
@@ -124,7 +147,9 @@
     if (!list.length) {
       empty.innerHTML = state.mode === 'demo'
         ? 'Пусто. Измените запрос.'
-        : 'Ничего не нашлось. Попробуйте запрос латиницей (немецкий/английский):<div class="chips">' + POPULAR.slice(0, 6).map(chipHTML).join('') + '</div>';
+        : ($('todayOnly').checked
+          ? 'Сегодня по этому запросу ещё ничего не разместили.<br><span class="muted">снимите галочку «только размещённые сегодня» — увидите все объявления</span>'
+          : 'Ничего не нашлось. Попробуйте запрос латиницей (немецкий/английский):<div class="chips">' + POPULAR.slice(0, 6).map(chipHTML).join('') + '</div>');
       empty.querySelectorAll('.chip').forEach(el => {
         el.addEventListener('click', () => { $('q').value = el.dataset.q; state.page = 1; loadSearch(); });
       });
@@ -160,7 +185,7 @@
         '<div class="c-meta"><span class="c-cat">' + esc(l.category || 'Kleinanzeigen') + '</span><span class="c-sep">·</span><b>' + priceTxt + '</b>' +
           (l.oldPrice ? ' <s class="c-old">' + fmt.price(l.oldPrice) + '</s>' : '') + '</div>' +
         '<div class="c-growth"><span class="g-plus">+' + (l.interest || 0) + '</span><span class="g-lbl">прирост</span></div>' +
-        '<div class="c-foot"><span class="c-loc">📍 ' + esc(l.location || '—') + '</span><span>' + esc(l.dateTxt || fmt.date(l.date) || '') + '</span></div>' +
+        '<div class="c-foot"><span class="c-loc">' + (l.location ? '📍 ' + esc(l.location) : '') + '</span><span>' + esc(l.dateTxt || fmt.date(l.date) || '') + '</span></div>' +
         (tags ? '<div class="c-tags">' + tags + '</div>' : '') +
       '</div></article>'
     );
