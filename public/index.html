@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KL Ads — аналитика объявлений Kleinanzeigen</title>
+<meta name="description" content="Лента объявлений Kleinanzeigen с аналитикой: динамика цен, «горячие» лоты, фильтры.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f172a'/%3E%3Cpath d='M8 20 L14 12 L18 16 L24 9' stroke='%2338bdf8' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <a class="logo" href="#top" aria-label="KL Ads">
+      <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0f172a" stroke="#334155"/><path d="M8 20 L14 12 L18 16 L24 9" stroke="#38bdf8" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>KL<b>Ads</b></span>
+    </a>
+    <nav class="nav" id="nav">
+      <a href="#feed">Лента</a>
+      <a href="#trending">Популярное</a>
+      <a href="#about">О сайте</a>
+      <a href="#contacts">Контакты</a>
+    </nav>
+    <div class="top-actions">
+      <span class="mode-pill" id="modePill" title="Режим данных">…</span>
+    </div>
+  </div>
+</header>
+
+<section class="hero" id="top">
+  <div class="wrap hero-in">
+    <div class="hero-txt">
+      <h1>Аналитика объявлений<br><span class="grad">Kleinanzeigen</span> — в реальном времени</h1>
+      <p class="sub">Лента лотов, динамика цен, автоматическая метка «горячих» объявлений и удобные фильтры. Данные — из открытой выдачи kleinanzeigen.de.</p>
+      <div class="hero-cta">
+        <button class="btn primary" id="btnStart">Начать использовать</button>
+        <button class="btn ghost" id="btnDemo">Смотреть демо</button>
+      </div>
+      <div class="hero-meta">
+        <span class="dot-live"><i></i> Срез данных: <b id="lastSnap">—</b></div>
+        <span id="trackedCount">Отслеживается объявлений: —</span>
+      </div>
+    </div>
+    <div class="hero-card" aria-hidden="true">
+      <div class="hc-head">
+        <span class="hc-title">Сейчас разгоняется</span>
+        <span class="hc-badge">LIVE</span>
+      </div>
+      <ul class="hc-list" id="heroList">
+        <li class="hc-empty">загрузка…</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<main>
+<section class="wrap controls" id="feed">
+  <div class="panel">
+    <form id="searchForm" class="search-row">
+      <input id="q" type="search" placeholder="Что ищем? Например: iphone 15, e-bike, sofa…" autocomplete="off">
+      <input id="min" type="number" min="0" placeholder="€ от" inputmode="numeric">
+      <input id="max" type="number" min="0" placeholder="€ до" inputmode="numeric">
+      <button class="btn primary" type="submit">Найти</button>
+    </form>
+    <div class="filter-row">
+      <label>Сортировка:
+        <select id="sort">
+          <option value="hot">🔥 Горячие</option>
+          <option value="new">Сначала новые</option>
+          <option value="cheap">Дешевле</option>
+          <option value="expensive">Дороже</option>
+          <option value="drop">Снижение цены</option>
+        </select>
+      </label>
+      <label class="chk"><input type="checkbox" id="hotOnly"> только «горячие»</label>
+      <span class="spacer"></span>
+      <button class="btn ghost sm" id="btnRefresh" title="Принудительно снять свежий срез">↻ Свежий срез</button>
+      <label class="chk"><input type="checkbox" id="autoRefresh" checked> автообновление</label>
+    </div>
+    <div class="banner" id="banner" hidden></div>
+  </div>
+
+  <div class="feed-head">
+    <h2>Лента <span class="muted" id="feedCount"></span></h2>
+    <span class="muted" id="feedQuery"></span>
+  </div>
+  <div class="grid" id="feedGrid" aria-live="polite"></div>
+  <div class="empty" id="feedEmpty" hidden>Ничего не нашлось. Попробуйте другой запрос.</div>
+  <div class="pager" id="pager" hidden>
+    <button class="btn ghost" id="prevPage">← назад</button>
+    <span id="pageInfo">стр. 1</span>
+    <button class="btn ghost" id="nextPage">вперёд →</button>
+  </div>
+</section>
+
+<section class="wrap trending-sec" id="trending">
+  <div class="feed-head">
+    <h2>Популярное сейчас</h2>
+    <span class="muted">оценка интереса по публичным сигналам: снижение цены, новизна, цена против медианы</span>
+  </div>
+  <div class="trend-strip" id="trendStrip"></div>
+</section>
+
+<section class="about-sec" id="about">
+  <div class="wrap">
+    <h2>О сайте</h2>
+    <p class="about-lead">KL Ads — сервис аналитики объявлений Kleinanzeigen. Мы регулярно снимаем срезы открытой выдачи, следим за изменением цен и положением лотов и подсвечиваем то, что «разгоняется» прямо сейчас.</p>
+    <div class="features">
+      <div class="feat">
+        <div class="feat-ico">🔥</div>
+        <h3>Индикатор «горячих»</h3>
+        <p>Лоты с резким снижением цены, свежей датой и ценой заметно ниже медианы помечаются автоматически.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-ico">📈</div>
+        <h3>Детали лота</h3>
+        <p>Полная карточка: продавец, цена, описание, характеристики и график истории цены по срезам.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-ico">⏱</div>
+        <h3>Бережные проверки</h3>
+        <p>Срезы делаются с паузами и кэшируются — свежие лоты чаще, старые реже, без лишней нагрузки.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-ico">🎚</div>
+        <h3>Мощные фильтры</h3>
+        <p>Запрос, диапазон цены, сортировка по «горячести», новизне, цене и снижению — в любых комбинациях.</p>
+      </div>
+    </div>
+    <p class="note">Примечание: Kleinanzeigen не публикует просмотры и избранное чужих объявлений, поэтому метрики строятся по наблюдаемым публичным данным (цена, дата, позиция, теги). Сервис использует только открытые страницы и не требует входа в аккаунт.</p>
+  </div>
+</section>
+
+<section class="contacts-sec" id="contacts">
+  <div class="wrap">
+    <h2>Контакты</h2>
+    <div class="contacts-grid">
+      <div class="contact">
+        <h3>Поддержка</h3>
+        <p>Вопросы по работе сервиса, идеи, баг-репорты:</p>
+        <a href="#" class="ct">Telegram: @your_support</a>
+      </div>
+      <div class="contact">
+        <h3>Администратор</h3>
+        <p>Сотрудничество и размещение:</p>
+        <a href="#" class="ct">Telegram: @your_admin</a>
+      </div>
+      <div class="contact">
+        <h3>Новости</h3>
+        <p>Обновления и статистика проекта:</p>
+        <a href="#" class="ct">Telegram: @your_news</a>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="footer">
+  <div class="wrap foot-in">
+    <span>KL Ads · аналитика объявлений Kleinanzeigen</span>
+    <span class="muted">Данные: публичная выдача kleinanzeigen.de · проект не связан с Kleinanzeigen/Adevinta</span>
+  </div>
+</footer>
+
+<!-- Модалка объявления -->
+<div class="modal-back" id="modalBack" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <button class="modal-x" id="modalX" aria-label="Закрыть">✕</button>
+    <div class="modal-body">
+      <div class="m-media">
+        <div class="m-img" id="mImg"><span class="no-photo">Нет фото</span></div>
+      </div>
+      <div class="m-info">
+        <div class="m-badges" id="mBadges"></div>
+        <h2 id="mTitle">—</h2>
+        <div class="m-price-row">
+          <span class="m-price" id="mPrice">—</span>
+          <s class="m-old" id="mOld" hidden></s>
+          <span class="m-drop" id="mDrop" hidden></span>
+        </div>
+        <ul class="m-meta" id="mMeta"></ul>
+        <div class="m-chart-box">
+          <h4>История цены (по срезам)</h4>
+          <svg id="mChart" viewBox="0 0 320 120" preserveAspectRatio="none"></svg>
+          <div class="m-chart-note" id="mChartNote"></div>
+        </div>
+        <div class="m-desc-box">
+          <h4>Описание</h4>
+          <p id="mDesc" class="m-desc">—</p>
+        </div>
+        <div class="m-details" id="mDetails"></div>
+        <div class="m-seller panel-mini" id="mSeller"></div>
+        <a class="btn primary m-open" id="mOpen" href="#" target="_blank" rel="noopener noreferrer">Открыть на Kleinanzeigen ↗</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

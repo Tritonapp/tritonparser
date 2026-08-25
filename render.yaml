@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: kl-ads
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/status
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: KA_MIN_INTERVAL_MS
+        value: 4000
+      - key: KA_CACHE_TTL_MS
+        value: 300000
