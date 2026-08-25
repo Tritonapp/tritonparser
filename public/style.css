@@ -1,4 +1,5 @@
 /* KL Ads — собственная тёмная тема (без внешних шрифтов и CDN) */
+[hidden]{display:none !important} /* защита: класс с display:flex не должен перебивать hidden */
 :root{
   --bg:#0b1220; --bg2:#0f172a; --panel:#111a2e; --panel2:#16213a;
   --line:#22304d; --line2:#2c3b5c;
