@@ -234,7 +234,12 @@ app.get('/api/img', async (req, res) => {
 
 // --- статика ------------------------------------------------------------
 
-app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: '1h',
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache');
+  },
+}));
 
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'not found' });
