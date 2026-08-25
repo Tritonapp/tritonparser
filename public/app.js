@@ -120,6 +120,7 @@
     if ($('min').value) p.set('min', $('min').value);
     if ($('max').value) p.set('max', $('max').value);
     if ($('todayOnly').checked) p.set('today', '1');
+    if ($('noShops') && !$('noShops').checked) p.set('all', '1');
     if (demo) p.set('mode', 'demo');
 
     try {
@@ -148,11 +149,14 @@
   function updateStats(j, q) {
     const eff = j.query && j.query.effective;
     const today = $('todayOnly').checked;
-    $('feedQuery').textContent = (q === 'angebote')
+    const noShops = j.query && j.query.noShops;
+    const baseLabel = (q === 'angebote')
       ? (today ? '🆕 свежие объявления · за сегодня' : 'все объявления Kleinanzeigen')
       : 'запрос: «' + (eff || q) + '»' + (eff && eff !== q ? ' (по вашему «' + q + '»)' : '');
+    $('feedQuery').textContent = baseLabel + (noShops ? ' · только частные лица' : ' · включая магазины');
     const st = [];
     if (j.newToday) st.push('новых сегодня: ' + j.newToday);
+    if (j.droppedTop) st.push('скрыто TOP: ' + j.droppedTop);
     if (j.total) st.push('всего на Kleinanzeigen: ' + j.total.toLocaleString('ru-RU'));
     st.push('<span class="dot-live"><i></i> обновлено ' + fmt.timeSec(Date.now()) + '</span>');
     $('feedStats').innerHTML = st.join(' · ');
@@ -435,6 +439,7 @@
   $('sort').addEventListener('change', () => renderFeed({ silent: true }));
   $('hotOnly').addEventListener('change', () => renderFeed({ silent: true }));
   $('todayOnly').addEventListener('change', () => { state.page = 1; loadSearch(); });
+  $('noShops').addEventListener('change', () => { state.page = 1; loadSearch(); });
   $('prevPage').addEventListener('click', () => { if (state.page > 1) { state.page--; loadSearch(); } });
   $('nextPage').addEventListener('click', () => { state.page++; loadSearch(); });
   $('modalX').addEventListener('click', closeAd);

@@ -84,15 +84,22 @@ function queryKey(q, minPrice, maxPrice, page) {
   return [String(q || '').toLowerCase().trim(), minPrice || 0, maxPrice || 0, page || 1].join('|');
 }
 
-async function fetchSearch({ q, minPrice, maxPrice, page, force, onlyToday }) {
-  const key = queryKey(q, minPrice, maxPrice, page) + (onlyToday ? '|today' : '');
-  const url = ka.searchUrl({ q, minPrice, maxPrice, page, onlyToday });
+async function fetchSearch({ q, minPrice, maxPrice, page, force, onlyToday, privateOnly }) {
+  const key = queryKey(q, minPrice, maxPrice, page) + (onlyToday ? '|today' : '') + (privateOnly ? '|priv' : '');
+  const url = ka.searchUrl({ q, minPrice, maxPrice, page, onlyToday, privateOnly });
   try {
     const { html } = await ka.get(url, { referer: ka.BASE + '/', force });
     if (ka.looksBlocked(html)) throw Object.assign(new Error('blocked:challenge'), { blocked: true });
-    const listings = parseSearch(html)
+    let listings = parseSearch(html)
       .map(l => Object.assign({}, l, { category: cats.categorize(l.title, q) }));
     const total = parseTotal(html);
+    // системный фильтр: выкидываем лоты с платной плашкой TOP
+    let droppedTop = 0;
+    if (privateOnly) {
+      const before = listings.length;
+      listings = listings.filter(l => !l.isTop);
+      droppedTop = before - listings.length;
+    }
     if (!listings.length) {
       // это не ошибка: Kleinanzeigen просто ничего не нашёл по запросу
       return { mode: 'live', listings: [], url, empty: true, total };
@@ -107,7 +114,7 @@ async function fetchSearch({ q, minPrice, maxPrice, page, force, onlyToday }) {
     const snapAt = store.recordSnapshot(key, listings);
     const decorated = store.decorate(listings, snapAt);
     store.rememberRecent(decorated);
-    return { mode: 'live', listings: decorated, url, total, snapshotAt: snapAt };
+    return { mode: 'live', listings: decorated, url, total, snapshotAt: snapAt, droppedTop };
   } catch (e) {
     lastLiveError = e.message + ' @ ' + new Date().toISOString();
     const stale = lastGood.get(key);
@@ -136,11 +143,13 @@ app.get('/api/search', async (req, res) => {
 
   if (wantDemo) {
     const d = demo.demoSearch({ q, minPrice, maxPrice, page }, force);
+    const noShops = req.query.all !== '1';
+    const listings = noShops ? d.listings.filter(l => !l.isTop) : d.listings;
     return res.json({
       mode: 'demo',
       notice: 'Демо-режим: показаны сгенерированные данные, а не реальные объявления.',
-      query: { q, minPrice, maxPrice, page },
-      listings: d.listings,
+      query: { q, minPrice, maxPrice, page, noShops },
+      listings,
     });
   }
 
@@ -150,7 +159,8 @@ app.get('/api/search', async (req, res) => {
   }
 
   const onlyToday = req.query.today === '1';
-  const out = await fetchSearch({ q: norm.q, minPrice, maxPrice, page, force, onlyToday });
+  const noShops = req.query.all !== '1';   // системный фильтр: без магазинов и TOP (по умолчанию ВКЛ)
+  const out = await fetchSearch({ q: norm.q, minPrice, maxPrice, page, force, onlyToday, privateOnly: noShops });
   const notice = norm.note
     || (out.empty && !onlyToday ? 'По этому запросу на Kleinanzeigen ничего не нашлось. Попробуйте иначе: iphone, sofa, fahrrad, laptop, e-bike…' : null);
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -159,9 +169,10 @@ app.get('/api/search', async (req, res) => {
     mode: out.mode,
     fallbackReason: out.fallbackReason || null,
     notice,
-    query: { q, effective: norm.q, minPrice, maxPrice, page, onlyToday },
+    query: { q, effective: norm.q, minPrice, maxPrice, page, onlyToday, noShops },
     url: out.url,
     total: out.total || null,
+    droppedTop: out.droppedTop || 0,
     newToday,
     snapshotAt: out.snapshotAt || Date.now(),
     count: out.listings.length,
@@ -294,8 +305,8 @@ app.get('*', (req, res) => {
 
 // --- прогрев данных (бережно: пара запросов раз в 20 минут) ---
 const WARM_JOBS = [
-  { q: 'angebote', onlyToday: true },
-  { q: 'iphone', onlyToday: false },
+  { q: 'angebote', onlyToday: true, privateOnly: true },
+  { q: 'iphone', onlyToday: false, privateOnly: true },
 ];
 let warmBusy = false;
 async function warm() {
@@ -303,7 +314,7 @@ async function warm() {
   warmBusy = true;
   try {
     for (const job of WARM_JOBS) {
-      await fetchSearch({ q: job.q, minPrice: 0, maxPrice: 0, page: 1, force: false, onlyToday: job.onlyToday });
+      await fetchSearch({ q: job.q, minPrice: 0, maxPrice: 0, page: 1, force: false, onlyToday: job.onlyToday, privateOnly: job.privateOnly });
     }
   } catch (_) { /* тихо */ }
   warmBusy = false;
