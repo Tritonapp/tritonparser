@@ -69,6 +69,7 @@
     const p = new URLSearchParams({ q, page: String(state.page), force: force ? '1' : '0' });
     if ($('min').value) p.set('min', $('min').value);
     if ($('max').value) p.set('max', $('max').value);
+    if ($('todayOnly').checked) p.set('today', '1');
     if (demo) p.set('mode', 'demo');
 
     try {
@@ -82,6 +83,11 @@
       $('lastSnap').textContent = fmt.time(state.lastFetchAt);
       const eff = j.query && j.query.effective;
       $('feedQuery').textContent = 'запрос: «' + (eff || q) + '»' + (eff && eff !== q ? ' (по вашему «' + q + '»)' : '');
+      const st = [];
+      if (j.newToday) st.push('новых сегодня: ' + j.newToday);
+      if (j.total) st.push('всего на Kleinanzeigen: ' + j.total.toLocaleString('ru-RU'));
+      if (j.snapshotAt) st.push('срез: ' + fmt.time(j.snapshotAt));
+      $('feedStats').textContent = st.join(' · ');
       renderFeed();
       loadStatus();
       loadTrending();
@@ -264,8 +270,9 @@
     $('mBadges').innerHTML = badges.join('');
 
     const meta = [];
+    if (ad.interest != null) meta.push(['Просмотры', '~' + ad.interest + ' (оценка)']);
     if (ad.date) meta.push(['Дата', fmt.date(ad.date)]);
-    if (ad.category) meta.push(['Категория', ad.category]);
+    if (ad.category) meta.push(['Категория', (ad.category || '') + (ad.subcategory ? ' › ' + ad.subcategory : '')]);
     if (ad.negotiable) meta.push(['Торг', 'возможен (VB)']);
     if (ad.id) meta.push(['ID', ad.id]);
     $('mMeta').innerHTML = meta.map(([k, v]) => '<li><b>' + esc(k) + ':</b> ' + esc(v) + '</li>').join('');
@@ -357,6 +364,7 @@
   $('btnStart').addEventListener('click', () => { document.getElementById('feed').scrollIntoView({ behavior: 'smooth' }); });
   $('sort').addEventListener('change', renderFeed);
   $('hotOnly').addEventListener('change', renderFeed);
+  $('todayOnly').addEventListener('change', () => { state.page = 1; loadSearch(); });
   $('prevPage').addEventListener('click', () => { if (state.page > 1) { state.page--; loadSearch(); } });
   $('nextPage').addEventListener('click', () => { state.page++; loadSearch(); });
   $('modalX').addEventListener('click', closeAd);
@@ -384,8 +392,17 @@
     // каждые 3 минуты снимаем срез — так накапливается история цен
     state.autoTimer = setInterval(() => {
       if (state.mode !== 'demo') loadSearch({ force: true });
-    }, 3 * 60 * 1000);
+    }, 2 * 60 * 1000);
   }
+
+  // вернулись на вкладку -> подтянуть свежий срез (не чаще раза в минуту)
+  let lastVisibleRefresh = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && Date.now() - lastVisibleRefresh > 60000) {
+      lastVisibleRefresh = Date.now();
+      if (state.mode !== 'demo') loadSearch({ force: true });
+    }
+  });
 
   // ---------- старт ----------
   loadSearch();

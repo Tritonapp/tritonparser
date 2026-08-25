@@ -8,7 +8,7 @@
 const express = require('express');
 const path = require('path');
 const ka = require('./lib/ka');
-const { parseSearch, parseDetail } = require('./lib/parse');
+const { parseSearch, parseDetail, parseTotal } = require('./lib/parse');
 const store = require('./lib/store');
 const demo = require('./lib/demo');
 const cats = require('./lib/cats');
@@ -84,16 +84,18 @@ function queryKey(q, minPrice, maxPrice, page) {
   return [String(q || '').toLowerCase().trim(), minPrice || 0, maxPrice || 0, page || 1].join('|');
 }
 
-async function fetchSearch({ q, minPrice, maxPrice, page, force }) {
-  const key = queryKey(q, minPrice, maxPrice, page);
-  const url = ka.searchUrl({ q, minPrice, maxPrice, page });
+async function fetchSearch({ q, minPrice, maxPrice, page, force, onlyToday }) {
+  const key = queryKey(q, minPrice, maxPrice, page) + (onlyToday ? '|today' : '');
+  const url = ka.searchUrl({ q, minPrice, maxPrice, page, onlyToday });
   try {
     const { html } = await ka.get(url, { referer: ka.BASE + '/', force });
     if (ka.looksBlocked(html)) throw Object.assign(new Error('blocked:challenge'), { blocked: true });
-    const listings = parseSearch(html);
+    const listings = parseSearch(html)
+      .map(l => Object.assign({}, l, { category: cats.categorize(l.title, q) }));
+    const total = parseTotal(html);
     if (!listings.length) {
       // это не ошибка: Kleinanzeigen просто ничего не нашёл по запросу
-      return { mode: 'live', listings: [], url, empty: true };
+      return { mode: 'live', listings: [], url, empty: true, total };
     }
     lastGood.set(key, { listings, ts: Date.now() });
     if (lastGood.size > 200) {
@@ -103,10 +105,9 @@ async function fetchSearch({ q, minPrice, maxPrice, page, force }) {
     liveOkAt = Date.now();
     lastLiveError = null;
     const snapAt = store.recordSnapshot(key, listings);
-    const decorated = store.decorate(listings, snapAt)
-      .map(l => Object.assign({}, l, { category: cats.categorize(l.title, q) }));
+    const decorated = store.decorate(listings, snapAt);
     store.rememberRecent(decorated);
-    return { mode: 'live', listings: decorated, url };
+    return { mode: 'live', listings: decorated, url, total, snapshotAt: snapAt };
   } catch (e) {
     lastLiveError = e.message + ' @ ' + new Date().toISOString();
     const stale = lastGood.get(key);
@@ -148,15 +149,21 @@ app.get('/api/search', async (req, res) => {
     return res.json({ mode: 'live', query: { q, minPrice, maxPrice, page }, notice: norm.note, count: 0, listings: [] });
   }
 
-  const out = await fetchSearch({ q: norm.q, minPrice, maxPrice, page, force });
+  const onlyToday = req.query.today === '1';
+  const out = await fetchSearch({ q: norm.q, minPrice, maxPrice, page, force, onlyToday });
   const notice = norm.note
-    || (out.empty ? 'По этому запросу на Kleinanzeigen ничего не нашлось. Попробуйте иначе: iphone, sofa, fahrrad, laptop, e-bike…' : null);
+    || (out.empty && !onlyToday ? 'По этому запросу на Kleinanzeigen ничего не нашлось. Попробуйте иначе: iphone, sofa, fahrrad, laptop, e-bike…' : null);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const newToday = out.listings.filter(l => l.date === todayIso).length;
   res.json({
     mode: out.mode,
     fallbackReason: out.fallbackReason || null,
     notice,
-    query: { q, effective: norm.q, minPrice, maxPrice, page },
+    query: { q, effective: norm.q, minPrice, maxPrice, page, onlyToday },
     url: out.url,
+    total: out.total || null,
+    newToday,
+    snapshotAt: out.snapshotAt || Date.now(),
     count: out.listings.length,
     listings: out.listings,
   });
@@ -179,15 +186,16 @@ app.get('/api/ad/:id', async (req, res) => {
     ad.id = id;
     ad.href = href;
     const recMeta = store.recent(200).find(l => String(l.id) === String(id));
+    const hotNow = recMeta ? (recMeta.hot || 25) : 25;
+    const dropPct = recMeta ? recMeta.priceDropPct : 0;
+    const adDate = ad.date || (recMeta ? recMeta.date : null);
+    ad.interest = store.interestFor(id, hotNow, adDate, dropPct, Date.now());
     if (hist) {
       ad.tracked = hist;
-      const hotNow = recMeta ? (recMeta.hot || 25) : 25;
-      ad.interestSeries = hist.prices.map(p => ({
-        t: p.t,
-        v: store.interestFor(id, hotNow, hist.firstSeen, recMeta ? recMeta.priceDropPct : 0, p.t),
-      }));
+      const ts = hist.prices.map(p => p.t).concat([Date.now()]);
+      ad.interestSeries = ts.map(t => ({ t, v: store.interestFor(id, hotNow, adDate, dropPct, t) }));
     } else {
-      ad.interestSeries = [{ t: Date.now(), v: store.interestFor(id, recMeta ? recMeta.hot || 25 : 25, null, 0, Date.now()) }];
+      ad.interestSeries = [{ t: Date.now(), v: ad.interest }];
     }
     return res.json({ mode: 'live', ad });
   } catch (e) {
