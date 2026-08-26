@@ -119,20 +119,54 @@ h1 .accent{color:var(--tq)}
 
 /* ---------- кнопки ---------- */
 .btn{
-  display:inline-flex;align-items:center;justify-content:center;gap:8px;
-  height:46px;padding:0 26px;border-radius:12px;
-  background:var(--tq);color:#04211c;
-  font-weight:650;font-size:14px;letter-spacing:.02em;white-space:nowrap;
-  transition:transform .16s,box-shadow .16s,background .16s;
+  position:relative;overflow:hidden;
+  display:inline-flex;align-items:center;justify-content:center;gap:9px;
+  height:48px;padding:0 30px;border-radius:13px;
+  color:#03211c;
+  font-weight:700;font-size:14px;letter-spacing:.01em;white-space:nowrap;
+  background:linear-gradient(180deg,#62f1da 0%,#2ae0c3 48%,#13c8a9 100%);
+  border:1px solid #0cb192;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.45),
+    inset 0 -2px 3px rgba(0,40,32,.16),
+    0 1px 2px rgba(0,0,0,.4),
+    0 14px 30px -12px rgba(46,230,200,.65);
+  transition:transform .18s cubic-bezier(.2,.75,.35,1.35),box-shadow .2s ease,filter .18s ease;
 }
-.btn:hover{background:var(--tq-2);transform:translateY(-1px);box-shadow:0 8px 26px rgba(46,230,200,.22)}
-.btn:active{transform:translateY(0)}
+.btn::after{
+  content:"";position:absolute;top:-2px;left:-75%;width:45%;height:130%;
+  background:linear-gradient(105deg,transparent,rgba(255,255,255,.55),transparent);
+  transform:skewX(-18deg);
+  transition:left .55s ease;
+  pointer-events:none;
+}
+.btn:hover{
+  transform:translateY(-2px);
+  filter:saturate(1.07) brightness(1.04);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.55),
+    inset 0 -2px 3px rgba(0,40,32,.16),
+    0 2px 4px rgba(0,0,0,.4),
+    0 20px 44px -14px rgba(46,230,200,.8);
+}
+.btn:hover::after{left:135%}
+.btn:active{transform:translateY(0) scale(.98);filter:brightness(.96)}
+.btn:focus-visible{outline:2px solid rgba(46,230,200,.75);outline-offset:3px}
 .btn.ghost{
-  background:transparent;color:#fff;
-  border:1px solid var(--line-2);
+  color:#edf5f5;
+  background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.015));
+  border:1px solid rgba(255,255,255,.22);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.09),0 1px 3px rgba(0,0,0,.35);
 }
-.btn.ghost:hover{border-color:var(--tq);color:var(--tq);box-shadow:none;background:var(--tq-dim)}
-.btn.sm{height:38px;padding:0 18px;font-size:13px;border-radius:10px}
+.btn.ghost:hover{
+  color:var(--tq-2);
+  border-color:rgba(46,230,200,.6);
+  background:linear-gradient(180deg,rgba(46,230,200,.16),rgba(46,230,200,.04));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 12px 30px -14px rgba(46,230,200,.55);
+  transform:translateY(-2px);
+}
+.btn.ghost:active{transform:translateY(0) scale(.98)}
+.btn.sm{height:40px;padding:0 20px;font-size:12.5px;border-radius:11px}
 
 /* ---------- консоль управления ---------- */
 .controls{margin-top:8px}
@@ -172,11 +206,20 @@ h1 .accent{color:var(--tq)}
 
 .chips{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}
 .chip{
-  padding:9px 15px;border-radius:999px;
-  border:1px solid var(--line);color:var(--dim);
-  font-size:12.5px;letter-spacing:.03em;transition:.16s;
+  padding:10px 17px;border-radius:999px;
+  border:1px solid rgba(255,255,255,.13);color:#c3d3d6;
+  font-size:12.5px;font-weight:550;letter-spacing:.03em;
+  background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.012));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.07);
+  transition:transform .16s,color .16s,border-color .16s,box-shadow .16s;
 }
-.chip:hover{color:var(--tq);border-color:var(--tq-line);background:var(--tq-dim)}
+.chip:hover{
+  color:var(--tq-2);border-color:rgba(46,230,200,.55);
+  background:linear-gradient(180deg,rgba(46,230,200,.14),rgba(46,230,200,.03));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 8px 20px -12px rgba(46,230,200,.5);
+  transform:translateY(-1px);
+}
+.chip:active{transform:translateY(0)}
 
 .filter-row{
   display:flex;align-items:center;gap:20px;flex-wrap:wrap;
@@ -390,11 +433,19 @@ h2{font-size:clamp(24px,2.4vw,32px);font-weight:700;letter-spacing:-.015em;color
 .contact h3{font-size:15.5px;font-weight:650;color:#fff;margin-bottom:8px}
 .contact p{font-size:13px;color:var(--dim);margin-bottom:16px}
 .ct{
-  display:inline-block;padding:10px 16px;border-radius:10px;
-  border:1px solid var(--tq-line);color:var(--tq);
-  font:600 12.5px/1 var(--mono);letter-spacing:.05em;transition:.16s;
+  display:inline-flex;align-items:center;gap:8px;
+  padding:12px 20px;border-radius:11px;
+  border:1px solid rgba(46,230,200,.4);color:var(--tq-2);
+  font:650 12.5px/1 var(--mono);letter-spacing:.05em;
+  background:linear-gradient(180deg,rgba(46,230,200,.09),rgba(46,230,200,.02));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+  transition:transform .16s,border-color .16s,box-shadow .16s;
 }
-.ct:hover{background:var(--tq-dim)}
+.ct:hover{
+  border-color:rgba(46,230,200,.7);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 10px 26px -12px rgba(46,230,200,.55);
+  transform:translateY(-1px);
+}
 
 /* ---------- футер ---------- */
 .footer{border-top:1px solid var(--line);background:var(--bg-2)}
@@ -424,12 +475,19 @@ h2{font-size:clamp(24px,2.4vw,32px);font-weight:700;letter-spacing:-.015em;color
 }
 .modal-x{
   position:absolute;top:16px;right:16px;z-index:5;
-  width:40px;height:40px;border-radius:11px;
-  background:rgba(6,8,9,.8);border:1px solid var(--line-2);color:#fff;
-  font-size:15px;transition:.16s;
+  width:42px;height:42px;border-radius:50%;
+  background:linear-gradient(180deg,rgba(255,255,255,.1),rgba(255,255,255,.02));
+  border:1px solid rgba(255,255,255,.24);color:#fff;
+  font-size:15px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 2px 8px rgba(0,0,0,.4);
   backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  transition:transform .2s ease,color .16s,border-color .16s,box-shadow .2s;
 }
-.modal-x:hover{border-color:var(--tq);color:var(--tq)}
+.modal-x:hover{
+  color:var(--tq);border-color:rgba(46,230,200,.6);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 6px 18px -8px rgba(46,230,200,.55);
+  transform:rotate(90deg) scale(1.05);
+}
 .modal-body{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr)}
 .m-media{padding:clamp(18px,2vw,28px)}
 .m-img{
