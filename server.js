@@ -96,32 +96,41 @@ function queryKey(q, minPrice, maxPrice, page) {
   return [String(q || '').toLowerCase().trim(), minPrice || 0, maxPrice || 0, page || 1].join('|');
 }
 
-async function fetchSearch({ q, minPrice, maxPrice, page, force, onlyToday, privateOnly, category, depth = 1 }) {
-  const key = queryKey(q, minPrice, maxPrice, page) + (onlyToday ? '|today' : '') + (privateOnly ? '|priv' : '') + (category ? '|c' + category : '') + '|d' + depth;
-  const catName = KA_CATEGORIES[category] || null;
-  const pages = [];
-  let firstPageError = null;
+// --- поиск: коалесинг одинаковых запросов (автообновление + прогрев + юзер) ---
+const inflightSearches = new Map();
 
-  // забираем depth страниц подряд и склеиваем их в одну большую ленту
+function fetchSearch(opts) {
+  const key = queryKey(opts.q, opts.minPrice, opts.maxPrice, opts.page)
+    + (opts.onlyToday ? '|today' : '') + (opts.privateOnly ? '|priv' : '')
+    + (opts.category ? '|c' + opts.category : '') + '|d' + (opts.depth || 1);
+  if (inflightSearches.has(key)) return inflightSearches.get(key);
+  const task = doFetchSearch(opts, key).finally(() => inflightSearches.delete(key));
+  inflightSearches.set(key, task);
+  return task;
+}
+
+async function doFetchSearch({ q, minPrice, maxPrice, page, force, onlyToday, privateOnly, category, depth = 1 }, key) {
+  const t0 = Date.now();
+  const catName = KA_CATEGORIES[category] || null;
+  const searchUrl = () => ka.searchUrl({ q, minPrice, maxPrice, page, onlyToday, privateOnly, category });
+
+  // бёрст: все depth страниц уходят одновременно, слоты ka.get вежливо разносят их старты
+  const jobs = [];
   for (let p = page; p < page + depth; p++) {
     const url = ka.searchUrl({ q, minPrice, maxPrice, page: p, onlyToday, privateOnly, category });
-    try {
-      const { html } = await ka.get(url, { referer: ka.BASE + '/', force });
-      if (ka.looksBlocked(html)) throw Object.assign(new Error('blocked:challenge'), { blocked: true });
-      const listings = parseSearch(html);
-      if (!listings.length) break;               // дальше страниц нет
-      pages.push({ listings, total: parseTotal(html) });
-    } catch (e) {
-      if (p === page) firstPageError = e;        // упала первая страница — ошибка запроса
-      break;                                     // глубже не идём
-    }
+    jobs.push(ka.get(url, { referer: ka.BASE + '/', force })
+      .then(out => ({ p, listings: parseSearch(out.html), total: parseTotal(out.html) }))
+      .catch(err => ({ p, err })));
   }
+  const results = await Promise.all(jobs);
+  const ok = results.filter(r => !r.err && r.listings && r.listings.length).sort((a, b) => a.p - b.p);
+  const firstPageError = results[0] && results[0].err ? results[0].err : null;
 
-  if (!firstPageError && pages.length) {
+  if (!firstPageError && ok.length) {
     const merged = [];
     const seenIds = new Set();
     let total = null;
-    for (const pg of pages) {
+    for (const pg of ok) {
       total = total || pg.total;
       for (const l of pg.listings) {
         if (seenIds.has(l.id)) continue;         // дубли между страницами
@@ -138,7 +147,7 @@ async function fetchSearch({ q, minPrice, maxPrice, page, force, onlyToday, priv
       droppedTop = before - listings.length;
     }
     if (!listings.length) {
-      return { mode: 'live', listings: [], url: ka.searchUrl({ q, minPrice, maxPrice, page, onlyToday, privateOnly, category }), empty: true, total };
+      return { mode: 'live', listings: [], url: searchUrl(), empty: true, total, tookMs: Date.now() - t0 };
     }
     lastGood.set(key, { listings, ts: Date.now() });
     if (lastGood.size > 200) {
@@ -151,31 +160,33 @@ async function fetchSearch({ q, minPrice, maxPrice, page, force, onlyToday, priv
     const decorated = store.decorate(listings, snapAt);
     store.rememberRecent(decorated);
     return {
-      mode: 'live', listings: decorated, url: ka.searchUrl({ q, minPrice, maxPrice, page, onlyToday, privateOnly, category }),
+      mode: 'live', listings: decorated, url: searchUrl(),
       total, snapshotAt: snapAt, droppedTop,
-      pagesFetched: pages.length,
-      hasMore: pages[pages.length - 1].listings.length >= 10,
+      pagesFetched: ok.length,
+      hasMore: ok[ok.length - 1].listings.length >= 10,
+      tookMs: Date.now() - t0,
     };
   }
 
   // первая страница не далась — fallback
   const e = firstPageError || new Error('empty');
-  const url = ka.searchUrl({ q, minPrice, maxPrice, page, onlyToday, privateOnly, category });
+  const url = searchUrl();
   lastLiveError = e.message + ' @ ' + new Date().toISOString();
   const stale = lastGood.get(key);
   if (stale) {
-    return { mode: 'cached', listings: store.decorate(stale.listings, stale.ts), url };
+    return { mode: 'cached', listings: store.decorate(stale.listings, stale.ts), url, tookMs: Date.now() - t0 };
   }
   if (e.blocked || /network|blocked|http:/.test(e.message)) {
     const d = demo.demoSearch({ q, minPrice, maxPrice, page }, force);
-    return { mode: 'demo', listings: d.listings, url, fallbackReason: e.message };
+    return { mode: 'demo', listings: d.listings, url, fallbackReason: e.message, tookMs: Date.now() - t0 };
   }
-  return { mode: 'live', listings: [], url, empty: true };
+  return { mode: 'live', listings: [], url, empty: true, tookMs: Date.now() - t0 };
 }
 
 // --- API ----------------------------------------------------------------
 
 app.get('/api/search', async (req, res) => {
+  lastApiActivity = Date.now();
   const q = String(req.query.q || 'angebote').slice(0, 80).replace(/[^\p{L}\p{N}\s+-]/gu, '');
   const minPrice = clampInt(req.query.min, 0, 999999, 0);
   const maxPrice = clampInt(req.query.max, 0, 999999, 0);
@@ -223,6 +234,7 @@ app.get('/api/search', async (req, res) => {
     count: out.listings.length,
     pagesFetched: out.pagesFetched || 1,
     hasMore: out.hasMore !== false,
+    tookMs: out.tookMs || null,
     depth,
     listings: out.listings,
   });
@@ -358,24 +370,29 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// --- прогрев данных (бережно: пара запросов раз в 20 минут) ---
-const WARM_JOBS = [
-  { q: 'angebote', onlyToday: true, privateOnly: true },
-  { q: 'iphone', onlyToday: false, privateOnly: true },
-];
+// --- прогрев: лента по умолчанию всегда тёплая -> первый визит мгновенный ---
+let lastApiActivity = Date.now();
 let warmBusy = false;
-async function warm() {
+async function warmDefault() {
   if (warmBusy) return;
   warmBusy = true;
   try {
-    for (const job of WARM_JOBS) {
-      await fetchSearch({ q: job.q, minPrice: 0, maxPrice: 0, page: 1, force: false, onlyToday: job.onlyToday, privateOnly: job.privateOnly });
-    }
+    await fetchSearch({ q: 'angebote', minPrice: 0, maxPrice: 0, page: 1, force: false, onlyToday: true, privateOnly: true, category: 0, depth: 1 });
   } catch (_) { /* тихо */ }
   warmBusy = false;
 }
-setTimeout(warm, 12000);
-setInterval(warm, 20 * 60 * 1000);
+setTimeout(warmDefault, 8000);                    // старт: сразу прогреваем сессию и кэш
+setInterval(() => {
+  if (Date.now() - lastApiActivity > 15 * 60e3) return;   // посетителей нет — KA не дёргаем
+  warmDefault();
+}, 90 * 1000);
+// медленный фоновый прогрев второго запроса (история для «Популярного сейчас»)
+setInterval(async () => {
+  if (Date.now() - lastApiActivity > 15 * 60e3) return;
+  try {
+    await fetchSearch({ q: 'iphone', minPrice: 0, maxPrice: 0, page: 1, force: false, onlyToday: false, privateOnly: true, category: 0, depth: 1 });
+  } catch (_) { /* тихо */ }
+}, 10 * 60 * 1000);
 
 // --- не даём бесплатному инстансу засыпать (пинг своего публичного URL раз в 10 мин) ---
 const PUBLIC_URL = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL || '';
