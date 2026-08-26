@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Triton Parser — аналитика объявлений Kleinanzeigen</title>
-<meta name="description" content="Triton Parser — премиальная аналитика объявлений Kleinanzeigen: живая лента, динамика цен, горячие лоты, фильтры.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%2307070b' stroke='%23d6b27c' stroke-width='1.5'/%3E%3Cpath d='M11 27 L17 17 L21 21 L29 11' stroke='%23d6b27c' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=14">
+<title>Triton Parser — рабочая аналитика объявлений Kleinanzeigen</title>
+<meta name="description" content="Triton Parser — рабочий терминал аналитики объявлений Kleinanzeigen: живая лента, реальные просмотры, динамика цен, горячие лоты, точные фильтры.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%23060809' stroke='%232ee6c8' stroke-width='1.5'/%3E%3Cpath d='M11 27 L17 17 L21 21 L29 11' stroke='%232ee6c8' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css?v=15">
 </head>
-<body>
+<body id="top">
 
 <header class="topbar">
   <div class="wrap topbar-in">
     <a class="logo" href="#top" aria-label="Triton Parser">
-      <svg class="logo-mark" viewBox="0 0 40 40" aria-hidden="true"><rect x=".75" y=".75" width="38.5" height="38.5" rx="9" fill="none" stroke="rgba(214,178,124,.55)" stroke-width="1.5"/><path d="M11 27 L17 17 L21 21 L29 11" stroke="#d6b27c" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <svg class="logo-mark" viewBox="0 0 40 40" aria-hidden="true"><rect x=".75" y=".75" width="38.5" height="38.5" rx="9" fill="none" stroke="rgba(46,230,200,.5)" stroke-width="1.5"/><path d="M11 27 L17 17 L21 21 L29 11" stroke="#2ee6c8" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span>TRITON<b>&nbsp;PARSER</b></span>
     </a>
     <nav class="nav" id="nav">
@@ -28,18 +28,20 @@
   </div>
 </header>
 
-<section class="hero" id="top">
+<section class="hero">
   <div class="wrap hero-in">
-    <div class="micro">Kleinanzeigen · Live Analytics</div>
-    <h1>Аналитика объявлений<br><span class="accent">с разбором до мелочей</span></h1>
-    <p class="sub">Живая лента частных объявлений, мгновенная карточка каждого лота, динамика цен и реальные просмотры с Kleinanzeigen — в выдержанном интерфейсе для тех, кто ценит время.</p>
+    <div class="micro">Kleinanzeigen · Live Workspace</div>
+    <h1>Терминал объявлений.<br><span class="accent">Всё рабочее — на одном экране</span></h1>
+    <p class="sub">Живая лента, реальные просмотры с Kleinanzeigen, динамика цен и точные фильтры. Максимум пространства, ноль лишнего — только данные и решения.</p>
     <div class="hero-cta">
-      <button class="btn" id="btnStart">Начать использовать</button>
-      <button class="btn ghost" id="btnDemo">Смотреть демо</button>
+      <button class="btn" id="btnStart">К ленте</button>
+      <button class="btn ghost" id="btnDemo">Демо-режим</button>
     </div>
     <div class="hero-meta">
       <span class="dot-live"><i></i> Срез данных: <b id="lastSnap">—</b></span>
+      <span class="hm-sep"></span>
       <span id="trackedCount">Отслеживается объявлений: —</span>
+      <span class="hm-sep"></span>
       <span>Источник: <b>kleinanzeigen.de</b></span>
     </div>
   </div>
@@ -49,7 +51,10 @@
 <section class="wrap controls" id="feed">
   <div class="panel">
     <form id="searchForm" class="search-row">
-      <input id="q" type="search" placeholder="Что ищем? iphone, sofa, e-bike…" autocomplete="off">
+      <div class="search-field">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16.5 16.5 L21 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <input id="q" type="search" placeholder="Что ищем? iphone, sofa, e-bike…" autocomplete="off">
+      </div>
       <input id="min" type="number" min="0" placeholder="€ от" inputmode="numeric">
       <input id="max" type="number" min="0" placeholder="€ до" inputmode="numeric">
       <button class="btn" type="submit">Найти</button>
@@ -94,7 +99,7 @@
       </label>
       <label class="chk" title="Горячий лот: возраст от 20 минут до 4 часов и не менее 0,5 просмотра в минуту (просмотры ÷ возраст в минутах ≥ 0,5)"><input type="checkbox" id="hotOnly"> только «горячие»</label>
       <label class="chk"><input type="checkbox" id="todayOnly" checked> только размещённые сегодня</label>
-      <label class="chk"><input type="checkbox" id="noShops" checked> без магазинов и TOP 🚫🏪</label>
+      <label class="chk"><input type="checkbox" id="noShops" checked> без магазинов и TOP</label>
       <span class="spacer"></span>
       <button class="btn ghost sm" id="btnRefresh" title="Принудительно снять свежий срез">↻ Свежий срез</button>
       <label class="chk"><input type="checkbox" id="autoRefresh" checked> автообновление</label>
@@ -103,10 +108,14 @@
   </div>
 
   <div class="feed-head">
-    <div class="micro">Live Feed</div>
-    <h2>Лента <span class="muted" id="feedCount"></span></h2>
-    <span id="feedQuery"></span>
-    <span id="feedStats"></span>
+    <div>
+      <div class="micro">Live Feed</div>
+      <h2>Лента <span class="muted" id="feedCount"></span></h2>
+    </div>
+    <div class="feed-sub">
+      <span id="feedQuery"></span>
+      <span id="feedStats"></span>
+    </div>
   </div>
   <div class="grid" id="feedGrid" aria-live="polite"></div>
   <div class="empty" id="feedEmpty" hidden>Ничего не нашлось. Попробуйте другой запрос.</div>
@@ -117,9 +126,11 @@
 
 <section class="wrap trending-sec" id="trending">
   <div class="feed-head">
-    <div class="micro">Trending</div>
-    <h2>Популярное сейчас</h2>
-    <span class="muted">просмотры — оценка; «горячий» лот: 20 мин–4 ч и ≥ 0,5 просмотра/мин</span>
+    <div>
+      <div class="micro">Trending</div>
+      <h2>Популярное сейчас</h2>
+    </div>
+    <div class="feed-sub"><span class="muted">«горячий» лот: 20 мин–4 ч и ≥ 0,5 просмотра/мин · просмотры — счётчик KA или оценка</span></div>
   </div>
   <div class="trend-strip" id="trendStrip"></div>
 </section>
@@ -128,27 +139,27 @@
   <div class="wrap">
     <div class="micro">About</div>
     <h2>О сервисе</h2>
-    <p class="about-lead">Triton Parser — сервис аналитики объявлений Kleinanzeigen. Мы регулярно снимаем срезы открытой выдачи, следим за изменением цен и положением лотов и подсвечиваем то, что «разгоняется» прямо сейчас.</p>
+    <p class="about-lead">Triton Parser — рабочий терминал аналитики объявлений Kleinanzeigen. Регулярные срезы открытой выдачи, реальные просмотры, история цен — и подсветка того, что разгоняется прямо сейчас.</p>
     <div class="features">
       <div class="feat">
-        <div class="feat-ico">🔥</div>
+        <div class="feat-num">01</div>
         <h3>Индикатор «горячих»</h3>
-        <p>«Горячий» лот: возраст от 20 минут до 4 часов и минимум 0,5 просмотра в минуту — просмотры ÷ возраст в минутах ≥ 0,5. Просмотры — оценка по публичным сигналам (снижение цены, новизна, цена против медианы).</p>
+        <p>Возраст от 20 минут до 4 часов и минимум 0,5 просмотра в минуту — просмотры ÷ возраст в минутах ≥ 0,5. Числа берутся из счётчика Kleinanzeigen.</p>
       </div>
       <div class="feat">
-        <div class="feat-ico">📈</div>
-        <h3>Детали лота</h3>
-        <p>Полная карточка: продавец, цена, описание, характеристики и графики истории цены и оценки просмотров.</p>
+        <div class="feat-num">02</div>
+        <h3>Реальные просмотры</h3>
+        <p>Просмотры подтягиваются из публичного счётчика KA (метка «KA»); пока счётчик не загружен — показывается оценка «≈».</p>
       </div>
       <div class="feat">
-        <div class="feat-ico">⏱</div>
-        <h3>Бережные проверки</h3>
-        <p>Срезы делаются с паузами и кэшируются — свежие лоты чаще, старые реже, без лишней нагрузки.</p>
+        <div class="feat-num">03</div>
+        <h3>Скорость терминала</h3>
+        <p>Первый срез — мгновенно из тёплого кэша, фоновая догрузка до ~80 лотов за секунды, «Показать ещё» без ожидания.</p>
       </div>
       <div class="feat">
-        <div class="feat-ico">🎚</div>
+        <div class="feat-num">04</div>
         <h3>Точные фильтры</h3>
-        <p>Категория, диапазон цены, «только сегодня», «без магазинов и TOP», сортировки — в любых комбинациях.</p>
+        <p>Категория, диапазон цены, «только сегодня», «без магазинов и TOP», сортировки — в любых комбинациях, без перезагрузки.</p>
       </div>
     </div>
     <p class="note">Примечание: просмотры берутся из публичного счётчика Kleinanzeigen (для свежих и открытых лотов — реальные числа, помечены «KA»); если счётчик ещё не загружен, показывается оценка (≈). «Горячий» лот: возраст 20 минут – 4 часа и не менее 0,5 просмотра в минуту. Сервис использует только открытые страницы и не требует входа в аккаунт.</p>
@@ -182,7 +193,7 @@
 
 <footer class="footer">
   <div class="wrap foot-in">
-    <span class="foot-brand">TRITON PARSER</span>
+    <span class="foot-brand">TRITON&nbsp;PARSER</span>
     <span>Данные: публичная выдача kleinanzeigen.de · проект не связан с Kleinanzeigen/Adevinta</span>
   </div>
 </footer>
@@ -227,6 +238,6 @@
 </div>
 
 <div class="toast" id="toast"></div>
-<script src="app.js?v=14"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>
