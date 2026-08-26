@@ -6,7 +6,7 @@
 <title>Triton Parser — аналитика объявлений Kleinanzeigen</title>
 <meta name="description" content="Triton Parser — премиальная аналитика объявлений Kleinanzeigen: живая лента, динамика цен, горячие лоты, фильтры.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%2307070b' stroke='%23d6b27c' stroke-width='1.5'/%3E%3Cpath d='M11 27 L17 17 L21 21 L29 11' stroke='%23d6b27c' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=13">
+<link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
 
@@ -32,7 +32,7 @@
   <div class="wrap hero-in">
     <div class="micro">Kleinanzeigen · Live Analytics</div>
     <h1>Аналитика объявлений<br><span class="accent">с разбором до мелочей</span></h1>
-    <p class="sub">Живая лента частных объявлений, мгновенная карточка каждого лота, динамика цен и оценка просмотров — в выдержанном интерфейсе для тех, кто ценит время.</p>
+    <p class="sub">Живая лента частных объявлений, мгновенная карточка каждого лота, динамика цен и реальные просмотры с Kleinanzeigen — в выдержанном интерфейсе для тех, кто ценит время.</p>
     <div class="hero-cta">
       <button class="btn" id="btnStart">Начать использовать</button>
       <button class="btn ghost" id="btnDemo">Смотреть демо</button>
@@ -151,7 +151,7 @@
         <p>Категория, диапазон цены, «только сегодня», «без магазинов и TOP», сортировки — в любых комбинациях.</p>
       </div>
     </div>
-    <p class="note">Примечание: Kleinanzeigen не публикует просмотры и избранное чужих объявлений, поэтому просмотры и метка «горячий» — оценки: просмотры ≈ скорость лота (просм./мин) × возраст, скорость стабильна по лоту и не меняется между лентой, карточкой и графиком. Сервис использует только открытые страницы и не требует входа в аккаунт.</p>
+    <p class="note">Примечание: просмотры берутся из публичного счётчика Kleinanzeigen (для свежих и открытых лотов — реальные числа, помечены «KA»); если счётчик ещё не загружен, показывается оценка (≈). «Горячий» лот: возраст 20 минут – 4 часа и не менее 0,5 просмотра в минуту. Сервис использует только открытые страницы и не требует входа в аккаунт.</p>
   </div>
 </section>
 
@@ -227,6 +227,6 @@
 </div>
 
 <div class="toast" id="toast"></div>
-<script src="app.js?v=13"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>

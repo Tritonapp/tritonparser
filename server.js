@@ -159,6 +159,14 @@ async function doFetchSearch({ q, minPrice, maxPrice, page, force, onlyToday, pr
     const snapAt = store.recordSnapshot(key, listings);
     const decorated = store.decorate(listings, snapAt);
     store.rememberRecent(decorated);
+    // фоновое обогащение реальными просмотрами: свежие лоты, самые новые первыми
+    const nowMs = Date.now();
+    const freshIds = listings
+      .filter(l => l.postedAt && nowMs - l.postedAt < 8 * 3600e3)
+      .sort((a, b) => b.postedAt - a.postedAt)
+      .slice(0, ENRICH_PER_CYCLE)
+      .map(l => l.id);
+    if (freshIds.length) setTimeout(() => queueEnrich(freshIds), 6000);
     return {
       mode: 'live', listings: decorated, url: searchUrl(),
       total, snapshotAt: snapAt, droppedTop,
@@ -181,6 +189,39 @@ async function doFetchSearch({ q, minPrice, maxPrice, page, force, onlyToday, pr
     return { mode: 'demo', listings: d.listings, url, fallbackReason: e.message, tookMs: Date.now() - t0 };
   }
   return { mode: 'live', listings: [], url, empty: true, tookMs: Date.now() - t0 };
+}
+
+// --- реальные просмотры (счётчик Kleinanzeigen s-vac-inc-get.json) ---------
+// Каждый вызов засчитывается лоту как визит (+1), поэтому обогащаем дозированно:
+// только свежие лоты, до ENRICH_PER_CYCLE за цикл, очередь ограничена, старт со сдвигом.
+const ENRICH_PER_CYCLE = 16;
+const ENRICH_MAX_PENDING = 60;
+const enrichPending = [];
+const enrichInQueue = new Set();
+let enrichBusy = false;
+
+function queueEnrich(ids) {
+  for (const id of ids) {
+    if (enrichInQueue.has(id) || enrichPending.length >= ENRICH_MAX_PENDING) continue;
+    enrichInQueue.add(id);
+    enrichPending.push(id);
+  }
+  runEnrich();
+}
+
+async function runEnrich() {
+  if (enrichBusy) return;
+  enrichBusy = true;
+  try {
+    while (enrichPending.length) {
+      const id = enrichPending.shift();
+      enrichInQueue.delete(id);
+      try {
+        const r = await ka.getViews(id);
+        if (r) store.setRealViews(id, r.n);
+      } catch (_) { /* тихо */ }
+    }
+  } finally { enrichBusy = false; }
 }
 
 // --- API ----------------------------------------------------------------
@@ -240,6 +281,33 @@ app.get('/api/search', async (req, res) => {
   });
 });
 
+// реальные/оценочные просмотры для видимых карточек (+ дозаказ обогащения)
+app.get('/api/views', (req, res) => {
+  lastApiActivity = Date.now();
+  const ids = String(req.query.ids || '').split(',').map(s => s.replace(/\D/g, '')).filter(Boolean).slice(0, 40);
+  const out = {};
+  const missing = [];
+  for (const id of ids) {
+    const postedAt = store.postedAtFor(id);
+    const vm = store.viewsMetaFor(id, postedAt, Date.now());
+    const realN = postedAt ? store.realViewsFor(id) : null;
+    if (realN != null) {
+      const ageMin = vm.ageMin || 0;
+      const rVpm = Math.round((realN / Math.max(ageMin, 1)) * 100) / 100;
+      out[id] = {
+        real: true, views: realN, ageMin,
+        vpm: rVpm,
+        isHot: ageMin >= 20 && ageMin <= 240 && realN / Math.max(ageMin, 1) >= 0.5,
+      };
+    } else {
+      if (vm.ageMin != null) out[id] = { real: false, views: vm.views, ageMin: vm.ageMin, vpm: vm.vpm, isHot: vm.isHot };
+      missing.push(id);
+    }
+  }
+  if (missing.length && ids.length) queueEnrich(missing.slice(0, ENRICH_PER_CYCLE));
+  res.json({ views: out });
+});
+
 app.get('/api/ad/:id', async (req, res) => {
   const id = String(req.params.id || '').replace(/\D/g, '').slice(0, 12);
   const href = String(req.query.href || '').replace(/[^\/a-z0-9-:.\s]/gi, '');
@@ -257,10 +325,19 @@ app.get('/api/ad/:id', async (req, res) => {
     ad.id = id;
     ad.href = href;
     const recMeta = store.recent(200).find(l => String(l.id) === String(id));
-    // просмотры (оценка), возраст и «горячесть» по правилу 20 мин–4 ч и >= 0.5 просм./мин
+    // просмотры, возраст и «горячесть» по правилу 20 мин–4 ч и >= 0.5 просм./мин;
+    // просмотры — РЕАЛЬНЫЕ из счётчика KA (открытие карточки = визит, как в браузере)
     const postedAt = (recMeta && recMeta.postedAt) || (hist && hist.postedAt) || ad.postedAt || null;
     const vm = store.viewsMetaFor(id, postedAt, Date.now());
-    Object.assign(ad, vm);           // postedAt, ageMin, vpm, views, isHot
+    const realR = postedAt ? await ka.getViews(id) : null;
+    if (realR) {
+      store.setRealViews(id, realR.n);
+      vm.views = realR.n;
+      vm.vpm = Math.round((realR.n / Math.max(vm.ageMin, 1)) * 100) / 100;
+      vm.isHot = vm.ageMin >= 20 && vm.ageMin <= 240 && realR.n / Math.max(vm.ageMin, 1) >= 0.5;
+      vm.viewsReal = true;
+    }
+    Object.assign(ad, vm);           // postedAt, ageMin, vpm, views, isHot, viewsReal
     if (hist) {
       ad.tracked = hist;
       const ts = hist.prices.map(p => p.t).concat([Date.now()]);

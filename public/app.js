@@ -288,7 +288,7 @@
     const badges = [];
     if (l._isNew) badges.push('<span class="badge new">Новое</span>');
     if (state.mode === 'demo') badges.push('<span class="badge drop">Демо</span>');
-    if (l.isHot) badges.push('<span class="badge hot" title="возраст 20 мин–4 ч и ≥ 0,5 просмотра/мин">🔥 ' + vpmTxt(l.vpm) + '/мин</span>');
+    if (l.isHot) badges.push('<span class="badge hot" title="возраст 20 мин–4 ч и ≥ 0,5 просмотра/мин' + (l.viewsReal ? ' · по счётчику KA' : '') + '">🔥 ' + vpmTxt(l.vpm) + '/мин</span>');
     if (l.isTop) badges.push('<span class="badge top">Top</span>');
     if (l.priceDrop) badges.push('<span class="badge drop">−' + l.priceDropPct + '%</span>');
     const tags = (l.tags || []).map(t => '<span class="tag">' + esc({ direkt: 'Direkt kaufen', versand: 'Versand', garantie: 'Garantie' }[t] || t) + '</span>').join('');
@@ -304,7 +304,11 @@
         '<div class="c-title">' + esc(l.title) + '</div>' +
         '<div class="c-meta"><span>' + esc(l.category || 'Kleinanzeigen') + '</span><span class="c-sep">·</span><b>' + priceTxt + '</b>' +
           (l.oldPrice ? ' <s class="c-old">' + fmt.price(l.oldPrice) + '</s>' : '') + '</div>' +
-        '<div class="c-growth"><span class="g-plus">≈ ' + viewsOf(l) + '</span><span class="g-lbl">просмотров · оценка</span></div>' +
+        '<div class="c-growth">' +
+          (l.viewsReal
+            ? '<span class="g-plus real">👁 ' + viewsOf(l) + '</span><span class="g-lbl">просмотров · KA</span>'
+            : '<span class="g-plus">≈ ' + viewsOf(l) + '</span><span class="g-lbl">просмотров · оценка</span>') +
+        '</div>' +
         '<div class="c-foot"><span class="c-loc">' + (l.location ? '📍 ' + esc(l.location) : '') + '</span><span>' + esc(l.dateTxt || fmt.date(l.date) || '') + '</span></div>' +
         (tags ? '<div class="c-tags">' + tags + '</div>' : '') +
       '</div></article>'
@@ -402,9 +406,9 @@
     $('mBadges').innerHTML = badges.join('');
 
     const meta = [];
-    if (ad.views != null) meta.push(['Просмотры', '≈ ' + ad.views + ' (оценка)']);
+    if (ad.views != null) meta.push(['Просмотры', ad.viewsReal ? String(ad.views) + ' (счётчик KA)' : '≈ ' + ad.views + ' (оценка)']);
     else if (ad.interest != null) meta.push(['Просмотры', '≈ ' + ad.interest + ' (оценка)']);
-    if (ad.vpm != null) meta.push(['Скорость', vpmTxt(ad.vpm) + ' просм./мин (оценка)']);
+    if (ad.vpm != null) meta.push(['Скорость', vpmTxt(ad.vpm) + ' просм./мин' + (ad.viewsReal ? '' : ' (оценка)')]);
     if (ad.ageMin != null) meta.push(['Возраст', ageTxt(ad.ageMin)]);
     if (ad.isHot) meta.push(['Горячий', 'да — 20 мин–4 ч и ≥ 0,5 просм./мин']);
     if (ad.date) meta.push(['Дата', fmt.date(ad.date)]);
@@ -531,6 +535,32 @@
       el.addEventListener('click', () => { $('q').value = el.dataset.q; loadSearch(); });
     });
   })();
+
+  // ---------- реальные просмотры (счётчик KA): тихая докачка ----------
+  function patchRealViews() {
+    if (state.mode === 'demo' || !state.listings.length) return;
+    const ids = state.listings.slice(0, 40).filter(l => l.id && !l.viewsReal).map(l => l.id);
+    if (!ids.length) return;
+    const my = state.gen;
+    fetch('/api/views?ids=' + ids.slice(0, 40).join(','))
+      .then(r => r.json())
+      .then(j => {
+        if (my !== state.gen) return;
+        const v = j.views || {};
+        let changed = 0;
+        state.listings = state.listings.map(l => {
+          const e = v[l.id];
+          if (e && e.real) { changed++; return Object.assign({}, l, { views: e.views, vpm: e.vpm, isHot: e.isHot, ageMin: e.ageMin, viewsReal: true }); }
+          return l;
+        });
+        if (changed) renderFeed({ silent: true });
+      })
+      .catch(() => { /* тихо */ });
+  }
+  setTimeout(function pollViews() {
+    if (document.visibilityState === 'visible') patchRealViews();
+    setTimeout(pollViews, 25000);
+  }, 12000);
 
   function scheduleAuto() {
     if (state.autoTimer) clearInterval(state.autoTimer);
