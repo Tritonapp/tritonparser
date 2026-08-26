@@ -6,7 +6,7 @@
 <title>Triton Parser — рабочая аналитика объявлений Kleinanzeigen</title>
 <meta name="description" content="Triton Parser — рабочий терминал аналитики объявлений Kleinanzeigen: живая лента, реальные просмотры, динамика цен, горячие лоты, точные фильтры.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%23060809' stroke='%232ee6c8' stroke-width='1.5'/%3E%3Cpath d='M11 27 L17 17 L21 21 L29 11' stroke='%232ee6c8' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=16">
+<link rel="stylesheet" href="style.css?v=17">
 </head>
 <body id="top">
 
@@ -97,12 +97,12 @@
           <option value="drop">Снижение цены</option>
         </select>
       </label>
-      <label class="chk" title="Горячий лот: возраст от 20 минут до 4 часов и не менее 0,5 просмотра в минуту (просмотры ÷ возраст в минутах ≥ 0,5)"><input type="checkbox" id="hotOnly"> только «горячие»</label>
-      <label class="chk"><input type="checkbox" id="todayOnly" checked> только размещённые сегодня</label>
-      <label class="chk"><input type="checkbox" id="noShops" checked> без магазинов и TOP</label>
+      <label class="chk" title="Горячий лот: возраст от 20 минут до 4 часов и не менее 0,5 просмотра в минуту (просмотры ÷ возраст в минутах ≥ 0,5)"><input type="checkbox" id="hotOnly"><span class="sw"></span>только «горячие»</label>
+      <label class="chk"><input type="checkbox" id="todayOnly" checked><span class="sw"></span>только сегодня</label>
+      <label class="chk"><input type="checkbox" id="noShops" checked><span class="sw"></span>без магазинов и TOP</label>
       <span class="spacer"></span>
       <button class="btn ghost sm" id="btnRefresh" title="Принудительно снять свежий срез">↻ Свежий срез</button>
-      <label class="chk"><input type="checkbox" id="autoRefresh" checked> автообновление</label>
+      <label class="chk"><input type="checkbox" id="autoRefresh" checked><span class="sw"></span>автообновление</label>
     </div>
     <div class="banner" id="banner" hidden></div>
   </div>
